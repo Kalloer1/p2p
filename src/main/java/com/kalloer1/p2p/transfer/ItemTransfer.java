@@ -56,6 +56,12 @@ public final class ItemTransfer {
         if (outCaps.isEmpty()) return 0;
         int outSize = outCaps.size();
 
+        // 均分模式：先汇总本轮输入总量，再按输出端数量均分，一次性同时输出到所有输出端。
+        // 走独立实现，避免和轮询/优先级共用一个"填满第一个再填下一个"的遍历顺序。
+        if (channel.distribution == Channel.Distribution.SPLIT_EVENLY) {
+            return splitEvenly(inCaps, outCaps, budget, globalTick);
+        }
+
         // PRIORITY: stable-sort outputs by endpoint priority once per call (highest first).
         if (channel.distribution == Channel.Distribution.PRIORITY) {
             outCaps.sort(Comparator.comparingInt((Cap c) -> c.priority).reversed());
@@ -140,6 +146,147 @@ public final class ItemTransfer {
 
         for (Cap c : dirty) c.markChanged();
         return totalMoved;
+    }
+
+    // ============================ 均分模式 (SPLIT_EVENLY) ============================
+
+    /**
+     * 均分：对每一种物品，先统计本轮所有输入端可抽取的总量 total（受速率预算限制），
+     * 再把 total 平均分给全部输出端 —— 每轮把"剩余待发量 / 剩余可接收输出端数"作为当前
+     * 输出端的配额（余数摊到前几个端，起始下标按 globalTick 轮转，避免长期偏向同一端），
+     * 于是一次 tick 内所有输出端会同时收到各自那一份。
+     *
+     * <p>某个输出端满了 / 被过滤挡下时它会被标记为关闭，它没吃下的份额会在同一轮里重新摊给
+     * 其余仍有余量的输出端（而不是堆给最后一个端），所以只要下游还有空间就仍然是均分。
+     *
+     * <p>沿用 simulate-first：每个输出端先模拟能收多少，再按实际可收量真实抽取并插入，
+     * 不会出现"抽 64 个只塞进去 32 个再退回去"的往返写入。
+     */
+    private static int splitEvenly(List<Cap> inCaps, List<Cap> outCaps, int budget, int globalTick) {
+        int outSize = outCaps.size();
+        if (outSize == 0 || budget <= 0) return 0;
+
+        // ---- 1) 汇总货源：按物品类型分组，组内保持槽位顺序 ----
+        List<ItemGroup> groups = new ArrayList<>();
+        for (Cap cap : inCaps) {
+            IItemHandler h = cap.handler;
+            for (int slot = 0; slot < h.getSlots(); slot++) {
+                ItemStack avail = h.extractItem(slot, budget, true);   // simulate
+                if (avail.isEmpty()) continue;
+                if (cap.filter != null && !cap.filter.test(avail)) continue;
+                ItemGroup g = null;
+                for (ItemGroup cand : groups) {
+                    if (ItemStack.isSameItemSameTags(cand.sample, avail)) { g = cand; break; }
+                }
+                if (g == null) { g = new ItemGroup(avail.copy()); groups.add(g); }
+                g.lots.add(new Lot(cap, slot, avail.getCount()));
+            }
+        }
+        if (groups.isEmpty()) return 0;
+
+        int budgetLeft = budget;
+        int totalMoved = 0;
+        Set<Cap> dirty = new HashSet<>();
+        int offset = (int) Math.floorMod(globalTick, (long) outSize);
+
+        // ---- 2) 每种物品独立均分一轮 ----
+        for (ItemGroup g : groups) {
+            if (budgetLeft <= 0) break;
+            int pool = 0;
+            for (Lot l : g.lots) pool += l.count;
+            if (pool <= 0) continue;
+            if (pool > budgetLeft) pool = budgetLeft;
+
+            boolean[] closed = new boolean[outSize];   // 本轮该物品已无法接收的输出端
+            int[] cursor = {0};                        // 货源游标：当前抽到哪个槽位
+            boolean dry = false;                       // 货源已抽空
+
+            while (pool > 0 && !dry) {
+                int open = 0;
+                for (boolean c : closed) if (!c) open++;
+                if (open == 0) break;
+                int openLeft = open;
+                boolean progressed = false;
+                for (int k = 0; k < outSize && pool > 0; k++) {
+                    int idx = (offset + k) % outSize;
+                    if (closed[idx]) continue;
+                    // 均分配额：剩余量 / 剩余可接收端数（向上取整，余数自然落在前几个端上）
+                    int want = Math.min(pool, (pool + openLeft - 1) / openLeft);
+                    openLeft--;
+                    int moved = pushEven(g, outCaps.get(idx), cursor, want, dirty);
+                    if (moved < 0) { dry = true; break; }        // 货源抽空，换下一种物品
+                    if (moved > 0) {
+                        pool -= moved;
+                        budgetLeft -= moved;
+                        totalMoved += moved;
+                        progressed = true;
+                    } else {
+                        closed[idx] = true;                      // 满了 / 过滤器不匹配，份额让给别人
+                    }
+                }
+                if (!progressed) break;
+            }
+        }
+
+        for (Cap c : dirty) c.markChanged();
+        return totalMoved;
+    }
+
+    /**
+     * 为该物品从货源抽取至多 {@code want} 个并插入 {@code out}。
+     * 返回实际转移数量；货源已抽空返回 -1；输出端收不下返回 0。
+     */
+    private static int pushEven(ItemGroup g, Cap out, int[] cursor, int want, Set<Cap> dirty) {
+        if (want <= 0) return 0;
+        if (out.filter != null && !out.filter.test(g.sample)) return 0;
+        int canAccept = simulateAccept(out.handler, g.sample, want);
+        if (canAccept <= 0) return 0;
+
+        int need = canAccept;
+        int moved = 0;
+        while (need > 0 && cursor[0] < g.lots.size()) {
+            Lot l = g.lots.get(cursor[0]);
+            ItemStack sim = l.cap.handler.extractItem(l.slot, need, true);
+            if (sim.isEmpty()) { cursor[0]++; continue; }
+            ItemStack real = l.cap.handler.extractItem(l.slot, sim.getCount(), false);
+            if (real.isEmpty()) { cursor[0]++; continue; }
+            dirty.add(l.cap);
+            ItemStack remainder = insertAll(out.handler, real, false);
+            int inserted = real.getCount() - remainder.getCount();
+            if (inserted < real.getCount()) {
+                // 容量在模拟之后发生变化：把没放进去的部分退回原槽位，避免丢物品
+                l.cap.handler.insertItem(l.slot, remainder.copy(), false);
+            }
+            moved += inserted;
+            need -= inserted;
+            if (inserted <= 0) break;      // 该输出端确实满了
+        }
+        if (moved > 0) dirty.add(out);
+        if (moved == 0 && cursor[0] >= g.lots.size()) return -1;   // 货源耗尽
+        return moved;
+    }
+
+    /** 模拟 {@code h} 能接收多少个 {@code template}（最多 {@code count} 个）。 */
+    private static int simulateAccept(IItemHandler h, ItemStack template, int count) {
+        ItemStack probe = template.copy();
+        probe.setCount(count);
+        ItemStack remainder = insertAll(h, probe, true);
+        return count - remainder.getCount();
+    }
+
+    /** 同一类物品的所有货源槽位，sample 只用于类型比对与模拟插入。 */
+    private static final class ItemGroup {
+        final ItemStack sample;
+        final List<Lot> lots = new ArrayList<>();
+        ItemGroup(ItemStack sample) { this.sample = sample; }
+    }
+
+    /** 单个货源槽位；count 是采集阶段模拟出的可抽取量，仅用于估算本轮总量。 */
+    private static final class Lot {
+        final Cap cap;
+        final int slot;
+        final int count;
+        Lot(Cap cap, int slot, int count) { this.cap = cap; this.slot = slot; this.count = count; }
     }
 
     /** Two-pass insert: merge into existing same-item stacks first, then use empty slots. */

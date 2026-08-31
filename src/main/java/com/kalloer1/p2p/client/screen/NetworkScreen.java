@@ -84,7 +84,7 @@ public class NetworkScreen extends Screen {
         gg.fill(x, ty, x + W, ty + 16, TAB);
         gg.fill(x, ty, x + W, ty + 1, HI);
         gg.drawString(this.font, Component.literal("选择网络"), x + 6, ty + 4, TITLE, false);
-        gg.drawString(this.font, Component.literal("管理员可见他人网络 · 点击进入"), x + W / 2 - 74, ty + 4, 0xFFc9c9c9, false);
+        gg.drawString(this.font, Component.literal("共享网络：/p2p invite <玩家>"), x + W / 2 - 84, ty + 4, 0xFFc9c9c9, false);
 
         // panel + bevel
         gg.fill(x, y, x + W, y + H, STONE);
@@ -110,7 +110,8 @@ public class NetworkScreen extends Screen {
             boolean sel = i == selected;
             if (sel) gg.fill(x + 5, ry + 1, x + W - 5, ry + rowH - 1, SEL);
             gg.drawString(this.font, Component.literal(trim(n.name, 180)), x + 10, ry + 4, INK, false);
-            String meta = "频道 " + chanCounts.get(i) + (isAdmin(n) ? "  · 管理员" : "");
+            String role = roleOf(n);
+            String meta = "频道 " + chanCounts.get(i) + (role.isEmpty() ? "" : "  ·  " + role);
             gg.drawString(this.font, Component.literal(meta), x + 10, ry + 16, INK_DIM, false);
             rows.add(new Hit(x + 5, ry + 1, W - 10, rowH - 1, i));
         }
@@ -118,9 +119,14 @@ public class NetworkScreen extends Screen {
             gg.drawString(this.font, Component.literal("没有可访问的网络"), x + 12, listTop + 12, INK_DIM, false);
     }
 
-    private boolean isAdmin(Network n) {
-        // local viewer cannot be resolved here cheaply; show "管理员" only when admins set is non-empty
-        return !n.admins.isEmpty();
+    /** 本机玩家在该网络里的身份：拥有者 / 管理员 / 共享（被邀请加入）。 */
+    private String roleOf(Network n) {
+        if (this.minecraft == null || this.minecraft.player == null) return "";
+        String me = this.minecraft.player.getStringUUID();
+        if (n.owner != null && n.owner.equals(me)) return "拥有者";
+        if (n.admins.contains(me)) return "管理员";
+        if (n.members.contains(me)) return "共享";
+        return "";
     }
 
     private void enter() {

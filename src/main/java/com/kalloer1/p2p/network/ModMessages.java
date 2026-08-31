@@ -25,12 +25,6 @@ public class ModMessages {
                 .consumerMainThread(RequestChannelsC2SPacket::handle)
                 .add();
 
-        INSTANCE.messageBuilder(BindWrenchC2SPacket.class, id())
-                .encoder(BindWrenchC2SPacket::toBytes)
-                .decoder(BindWrenchC2SPacket::new)
-                .consumerMainThread(BindWrenchC2SPacket::handle)
-                .add();
-
         INSTANCE.messageBuilder(ChannelSyncS2CPacket.class, id())
                 .encoder(ChannelSyncS2CPacket::toBytes)
                 .decoder(ChannelSyncS2CPacket::new)
@@ -43,10 +37,23 @@ public class ModMessages {
                 .consumerMainThread(ChannelActionC2SPacket::handle)
                 .add();
 
-        INSTANCE.messageBuilder(WrenchUseC2SPacket.class, id())
-                .encoder(WrenchUseC2SPacket::toBytes)
-                .decoder(WrenchUseC2SPacket::new)
-                .consumerMainThread(WrenchUseC2SPacket::handle)
+        // —— 绑定模式（取代旧扳手）：按键进入，空手左右键绑定端点 ——
+        INSTANCE.messageBuilder(BindModeC2SPacket.class, id())
+                .encoder(BindModeC2SPacket::toBytes)
+                .decoder(BindModeC2SPacket::new)
+                .consumerMainThread(BindModeC2SPacket::handle)
+                .add();
+
+        INSTANCE.messageBuilder(BindClickC2SPacket.class, id())
+                .encoder(BindClickC2SPacket::toBytes)
+                .decoder(BindClickC2SPacket::new)
+                .consumerMainThread(BindClickC2SPacket::handle)
+                .add();
+
+        INSTANCE.messageBuilder(SetBindChannelC2SPacket.class, id())
+                .encoder(SetBindChannelC2SPacket::toBytes)
+                .decoder(SetBindChannelC2SPacket::new)
+                .consumerMainThread(SetBindChannelC2SPacket::handle)
                 .add();
     }
 }

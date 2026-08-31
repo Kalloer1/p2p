@@ -66,7 +66,7 @@ public final class TransferEngine {
             int moved = switch (channel.type) {
                 case ITEM -> ItemTransfer.transfer(cache, channel, levels, inputs, outputs, channel.rate, globalTick);
                 case FLUID -> FluidTransfer.transfer(cache, channel, levels, inputs, outputs, channel.rate, globalTick);
-                case ENERGY -> EnergyTransfer.transfer(cache, channel, levels, inputs, outputs, channel.rate);
+                case ENERGY -> EnergyTransfer.transfer(cache, channel, levels, inputs, outputs, channel.rate, globalTick);
             };
             updateBackoff(channel, moved > 0);
         }

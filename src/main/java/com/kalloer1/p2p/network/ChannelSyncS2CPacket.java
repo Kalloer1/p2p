@@ -2,6 +2,7 @@ package com.kalloer1.p2p.network;
 
 import com.kalloer1.p2p.P2P;
 import com.kalloer1.p2p.client.ClientChannelCache;
+import com.kalloer1.p2p.client.ClientBindState;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraftforge.network.NetworkEvent;
@@ -27,7 +28,9 @@ public class ChannelSyncS2CPacket {
     public void handle(Supplier<NetworkEvent.Context> ctx) {
         ctx.get().enqueueWork(() -> {
             ClientChannelCache.INSTANCE.setData(data);
-            P2P.LOGGER.info("[p2p] ChannelSyncS2CPacket (client): nets={} groups={} channels={}",
+            // 同步"当前绑定频道"到客户端镜像，供 HUD / 高亮使用
+            if (data.contains("boundChannel")) ClientBindState.setBoundChannel(data.getInt("boundChannel"));
+            P2P.LOGGER.info("[p2p] ChannelSyncS2CPacket (client): nets={} groups={} channels={} boundChannel={}",
                     data.getList("networks", net.minecraft.nbt.Tag.TAG_COMPOUND).size(),
                     data.getList("groups", net.minecraft.nbt.Tag.TAG_COMPOUND).size(),
                     data.getList("channels", net.minecraft.nbt.Tag.TAG_COMPOUND).size());

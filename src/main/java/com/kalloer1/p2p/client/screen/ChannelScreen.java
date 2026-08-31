@@ -8,11 +8,10 @@ import com.kalloer1.p2p.channel.Member;
 import com.kalloer1.p2p.channel.Network;
 import com.kalloer1.p2p.channel.Role;
 import com.kalloer1.p2p.client.ClientChannelCache;
-import com.kalloer1.p2p.item.ChannelWrench;
-import com.kalloer1.p2p.network.BindWrenchC2SPacket;
 import com.kalloer1.p2p.network.ChannelActionC2SPacket;
 import com.kalloer1.p2p.network.ModMessages;
 import com.kalloer1.p2p.network.RequestChannelsC2SPacket;
+import com.kalloer1.p2p.network.SetBindChannelC2SPacket;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
@@ -132,7 +131,9 @@ public class ChannelScreen extends Screen {
         speedDown = addRenderableWidget(new FlatButton(Button.builder(Component.literal("-"), b -> stepSpeed(-1)).bounds(rx + 74, topPos + 66, 18, 16)));
         speedUp = addRenderableWidget(new FlatButton(Button.builder(Component.literal("+"), b -> stepSpeed(1)).bounds(rx + 92, topPos + 66, 18, 16)));
 
-        bindBtn = addRenderableWidget(new FlatButton(Button.builder(Component.literal("绑定到扳手"), b -> ModMessages.INSTANCE.sendToServer(new BindWrenchC2SPacket(selectedChannel))).bounds(rx, topPos + H - 22, (rw - 8) / 2, 18)));
+        bindBtn = addRenderableWidget(new FlatButton(Button.builder(Component.literal("设为当前绑定频道"), b -> {
+            if (selectedChannel >= 0) ModMessages.INSTANCE.sendToServer(new SetBindChannelC2SPacket(selectedChannel));
+        }).bounds(rx, topPos + H - 22, (rw - 8) / 2, 18)));
         deleteBtn = addRenderableWidget(new FlatButton(Button.builder(Component.literal("删除频道").withStyle(ChatFormatting.RED), b -> sendAction(ChannelActionC2SPacket.Action.DELETE, 0)).bounds(rx + (rw - 8) / 2 + 8, topPos + H - 22, (rw - 8) / 2, 18)));
 
         int btnL = (lw - 2 * btnGap) / 3;              // bottom-left row: 新建频道/新建组/删除组 — unified size
@@ -360,7 +361,7 @@ public class ChannelScreen extends Screen {
             inset(gg, rx, y + 8, rw, (y + H - 26) - (y + 8));
             gg.drawString(this.font, Component.literal("暂无频道"), rx + 10, y + 24, INK, false);
             gg.drawString(this.font, Component.literal("点击下方「+ 新建频道」创建一个"), rx + 10, y + 44, INK_DIM, false);
-            gg.drawString(this.font, Component.literal("手持扳手右键容器某个面即可把端点加入频道"), rx + 10, y + 62, INK_DIM, false);
+            gg.drawString(this.font, Component.literal("按 B 进入绑定模式，空手右键=输入 / 左键=输出（Ctrl=连锁）"), rx + 10, y + 62, INK_DIM, false);
             return;
         }
 
@@ -407,7 +408,7 @@ public class ChannelScreen extends Screen {
         dimHits.clear();
         if (c.members.isEmpty()) {
             gg.drawString(this.font, Component.literal("这个频道还没有端点"), rx + 10, mTop + 26, 0xFF2b2b2b, false);
-            gg.drawString(this.font, Component.literal("手持扳手右键容器某个面即可加入"), rx + 10, mTop + 42, 0xFF5a5a5a, false);
+            gg.drawString(this.font, Component.literal("按 B 进入绑定模式，空手右键=输入 / 左键=输出（Ctrl=连锁）"), rx + 10, mTop + 42, 0xFF5a5a5a, false);
             return;
         }
         memberContentH = c.members.size() * rowH;
@@ -742,6 +743,7 @@ public class ChannelScreen extends Screen {
             case PRIORITY -> "优先";
             case NEAREST -> "就近";
             case FARTHEST -> "最远";
+            case SPLIT_EVENLY -> "均分";
             default -> "轮询";
         };
     }

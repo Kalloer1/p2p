@@ -40,11 +40,12 @@ public class Channel {
     public enum RedstoneMode { ALWAYS, HIGH, LOW, NEVER }
 
     /**
-     * Output distribution modes, aligned with LogisticsNetworks' four modes:
-     * ROUND_ROBIN (轮询), PRIORITY (按端点优先级), NEAREST (就近优先), FARTHEST (最远优先).
+     * Output distribution modes:
+     * ROUND_ROBIN (轮询), PRIORITY (按端点优先级), NEAREST (就近优先), FARTHEST (最远优先),
+     * SPLIT_EVENLY (均分) — 先统计本轮输入总量，除以输出端数量得出每个输出端的配额，再一次性同时输出到所有输出端。
      * Legacy values EVEN/FIRST from old saves map to ROUND_ROBIN/PRIORITY.
      */
-    public enum Distribution { ROUND_ROBIN, PRIORITY, NEAREST, FARTHEST }
+    public enum Distribution { ROUND_ROBIN, PRIORITY, NEAREST, FARTHEST, SPLIT_EVENLY }
 
     public CompoundTag serializeNBT() {
         CompoundTag tag = new CompoundTag();

@@ -33,7 +33,7 @@ public final class EnergyTransfer {
     private EnergyTransfer() {}
 
     public static int transfer(TransferCapabilityCache cache, Channel channel, Map<ResourceLocation, Level> levels,
-                               List<Member> inputs, List<Member> outputs, int budget) {
+                               List<Member> inputs, List<Member> outputs, int budget, int globalTick) {
         if (inputs.isEmpty() || outputs.isEmpty() || budget <= 0) return 0;
 
         List<Cap> inCaps = resolve(cache, levels, inputs);
@@ -43,6 +43,11 @@ public final class EnergyTransfer {
         List<Cap> outCaps = resolve(cache, levels, outputs);
         if (outCaps.isEmpty()) return 0;
         int outSize = outCaps.size();
+
+        // 均分模式：本轮能量按输出端数量均分，同时输出到所有输出端。
+        if (channel.distribution == Channel.Distribution.SPLIT_EVENLY) {
+            return splitEvenly(inCaps, outCaps, budget, globalTick);
+        }
 
         // PRIORITY: stable-sort outputs by endpoint priority once per call (highest first).
         if (channel.distribution == Channel.Distribution.PRIORITY) {
@@ -101,6 +106,74 @@ public final class EnergyTransfer {
                 remaining -= moved;
                 totalMoved += moved;
                 if (remaining <= 0) break outer;
+            }
+        }
+
+        for (Cap c : dirty) c.markChanged();
+        return totalMoved;
+    }
+
+    // ============================ 均分模式 (SPLIT_EVENLY) ============================
+
+    /**
+     * 能量均分：先一次性测出每个输出端的接收上限，然后按"剩余待发量 / 剩余可接收输出端数"
+     * 配额把本轮能量同时推向所有输出端；某端满了就把份额让给其余端，绝不超发（避免丢 FE）。
+     */
+    private static int splitEvenly(List<Cap> inCaps, List<Cap> outCaps, int budget, int globalTick) {
+        int outSize = outCaps.size();
+        if (outSize == 0 || budget <= 0) return 0;
+
+        int[] outCap = new int[outSize];
+        int totalCap = 0;
+        for (int k = 0; k < outSize; k++) {
+            Cap out = outCaps.get(k);
+            if (!out.handler.canReceive()) continue;
+            int c = out.handler.receiveEnergy(Integer.MAX_VALUE, true);
+            outCap[k] = c;
+            totalCap += c;
+        }
+        if (totalCap <= 0) return 0;
+
+        int budgetLeft = budget;
+        int totalMoved = 0;
+        Set<Cap> dirty = new HashSet<>();
+        int offset = (int) Math.floorMod(globalTick, (long) outSize);
+
+        for (Cap src : inCaps) {
+            if (budgetLeft <= 0) break;
+            if (!src.handler.canExtract()) continue;
+            int pool = Math.min(budgetLeft, src.handler.extractEnergy(budgetLeft, true));
+            boolean[] closed = new boolean[outSize];
+            while (pool > 0) {
+                int open = 0;
+                for (int k = 0; k < outSize; k++) if (!closed[k] && outCap[k] > 0) open++;
+                if (open == 0) break;
+                int openLeft = open;
+                boolean progressed = false;
+                for (int k = 0; k < outSize && pool > 0; k++) {
+                    int idx = (offset + k) % outSize;
+                    if (closed[idx] || outCap[idx] <= 0) continue;
+                    int want = Math.min(pool, Math.min(outCap[idx], (pool + openLeft - 1) / openLeft));
+                    openLeft--;
+                    if (want <= 0) { closed[idx] = true; continue; }
+                    int pulled = src.handler.extractEnergy(want, false);
+                    if (pulled <= 0) { pool = 0; break; }
+                    int filled = outCaps.get(idx).handler.receiveEnergy(pulled, false);
+                    if (filled < pulled) {
+                        // 接收端容量在模拟之后变化：把没进去的 FE 退回源，避免丢能量
+                        src.handler.receiveEnergy(pulled - filled, false);
+                        pool = 0;
+                        break;
+                    }
+                    outCap[idx] -= filled;
+                    dirty.add(outCaps.get(idx));
+                    dirty.add(src);
+                    pool -= filled;
+                    budgetLeft -= filled;
+                    totalMoved += filled;
+                    progressed = true;
+                }
+                if (!progressed) break;
             }
         }
 

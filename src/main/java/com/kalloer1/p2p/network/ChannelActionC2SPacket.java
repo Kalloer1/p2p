@@ -5,6 +5,7 @@ import com.kalloer1.p2p.channel.Channel;
 import com.kalloer1.p2p.channel.ChannelManager;
 import com.kalloer1.p2p.channel.ChannelType;
 import com.kalloer1.p2p.channel.Filter;
+import com.kalloer1.p2p.channel.Group;
 import com.kalloer1.p2p.channel.Member;
 import com.kalloer1.p2p.channel.Role;
 import net.minecraft.ChatFormatting;
@@ -84,6 +85,28 @@ public class ChannelActionC2SPacket {
         P2P.LOGGER.info("[p2p] ChannelAction: action={} channel={} intVal={} name='{}' memberKey={} extract={}",
                 action, channelId, intVal, name, memberKey, extract);
         ChannelManager cm = ChannelManager.INSTANCE;
+
+        // 权限闸门：频道级操作只允许该频道的网络拥有者 / 管理员 / 被邀请加入的成员执行。
+        // 网络共享之后这一点尤其重要——否则任何玩家都能靠猜频道 id 改动别人的网络。
+        // CREATE / CREATE_GROUP 作用于玩家自己的网络，无需校验；DELETE_GROUP 在下面单独校验。
+        if (action != Action.CREATE && action != Action.CREATE_GROUP && action != Action.DELETE_GROUP) {
+            Channel target = cm.getChannel(channelId);
+            if (target == null) return;
+            if (!cm.canEditChannel(player, target)) {
+                player.displayClientMessage(
+                        Component.literal("频道 #" + channelId + " 属于别人的网络，你没有改动权限。").withStyle(ChatFormatting.RED), true);
+                return;
+            }
+        }
+        if (action == Action.DELETE_GROUP) {
+            Group g = cm.getGroup(intVal);
+            if (g != null && !cm.canEditGroup(player, g)) {
+                player.displayClientMessage(
+                        Component.literal("这个组属于别人的网络，你没有改动权限。").withStyle(ChatFormatting.RED), true);
+                return;
+            }
+        }
+
         switch (action) {
             case CREATE -> {
                 ChannelType t = ChannelType.valueOf(createType);
@@ -116,7 +139,15 @@ public class ChannelActionC2SPacket {
             }
             case SET_GROUP -> {
                 Channel c = cm.getChannel(channelId);
-                if (c != null) c.groupId = intVal;
+                if (c != null) {
+                    // 组必须与频道同属一个网络，避免把别人的频道挂到自己的组里
+                    if (intVal < 0) {
+                        c.groupId = intVal;
+                    } else {
+                        Group g = cm.getGroup(intVal);
+                        if (g != null && g.networkId == c.networkId && cm.canEditGroup(player, g)) c.groupId = intVal;
+                    }
+                }
             }
             case RENAME -> {
                 Channel c = cm.getChannel(channelId);

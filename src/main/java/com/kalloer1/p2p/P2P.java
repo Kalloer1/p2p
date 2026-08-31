@@ -1,8 +1,6 @@
 package com.kalloer1.p2p;
 
-import com.kalloer1.p2p.item.ModItems;
 import com.kalloer1.p2p.network.ModMessages;
-import com.kalloer1.p2p.tab.ModTabs;
 import com.kalloer1.p2p.transfer.TransferEngine;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.common.Mod;
@@ -19,9 +17,8 @@ public class P2P {
 
     public P2P() {
         IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
-        ModItems.ITEMS.register(modEventBus);
-        ModTabs.CREATIVE_MODE_TABS.register(modEventBus);
         modEventBus.addListener(this::onCommonSetup);
+        // 绑定模式走按键 + 交互事件，不再依赖任何物品/创造标签页注册
         MinecraftForge.EVENT_BUS.register(TransferEngine.INSTANCE);
     }
 

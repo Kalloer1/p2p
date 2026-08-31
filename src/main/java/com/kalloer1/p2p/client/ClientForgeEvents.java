@@ -4,8 +4,8 @@ import com.kalloer1.p2p.P2P;
 import com.kalloer1.p2p.channel.Channel;
 import com.kalloer1.p2p.channel.Member;
 import com.kalloer1.p2p.channel.Role;
+import com.kalloer1.p2p.client.ClientBindState;
 import com.kalloer1.p2p.client.screen.ChannelScreen;
-import com.kalloer1.p2p.item.ChannelWrench;
 import com.kalloer1.p2p.network.ModMessages;
 import com.kalloer1.p2p.network.RequestChannelsC2SPacket;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
@@ -13,6 +13,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderStateShard;
 import net.minecraft.client.renderer.RenderType;
@@ -21,12 +22,13 @@ import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.RenderGuiEvent;
 import net.minecraftforge.client.event.RenderLevelStageEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -70,10 +72,16 @@ public final class ClientForgeEvents {
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
-        if (Keybinds.OPEN_GUI.consumeClick() && Minecraft.getInstance().screen == null) {
-            P2P.LOGGER.info("[p2p] opening ChannelScreen via keybind");
-            ModMessages.INSTANCE.sendToServer(new RequestChannelsC2SPacket());
-            Minecraft.getInstance().setScreen(new ChannelScreen());
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.screen == null) {
+            if (Keybinds.OPEN_GUI.consumeClick()) {
+                P2P.LOGGER.info("[p2p] opening ChannelScreen via keybind");
+                ModMessages.INSTANCE.sendToServer(new RequestChannelsC2SPacket());
+                mc.setScreen(new ChannelScreen());
+            } else if (Keybinds.BIND_MODE.consumeClick()) {
+                P2P.LOGGER.info("[p2p] toggling bind mode via keybind");
+                ClientBindState.toggle();
+            }
         }
     }
 
@@ -87,13 +95,12 @@ public final class ClientForgeEvents {
         var bs = mc.renderBuffers().bufferSource();
         Vec3 cam = event.getCamera().getPosition();
 
-        // (1) GUI "jump to block" highlight — drawn regardless of whether the wrench is held.
+        // (1) GUI "jump to block" highlight — drawn regardless of bind mode.
         drawHighlight(pose, bs, cam);
 
-        // (2) Bound-face glow — only while holding the wrench.
-        ItemStack stack = mc.player.getMainHandItem();
-        if (!(stack.getItem() instanceof ChannelWrench)) return;
-        int boundCid = ChannelWrench.getBoundChannelId(stack);
+        // (2) Bound-face glow — only while the bind mode is active (the old wrench is gone).
+        if (!ClientBindState.isActive()) return;
+        int boundCid = ClientBindState.getBoundChannel();
         CompoundTag data = ClientChannelCache.INSTANCE.getData();
         if (data == null) return;
 
@@ -114,16 +121,19 @@ public final class ClientForgeEvents {
                     if (!m.dim.equals(dim)) continue;
                     if (m.pos.distSqr(ppos) > HUD_RANGE * HUD_RANGE) continue;
                     float[] col = roleColor(m.role);
-                    faceGlow(pose, vc, m.pos, m.face, col[0], col[1], col[2], 0.35f, cam);
+                    // 当前绑定频道的端点画得更亮，方便确认"这次会绑到哪个频道"
+                    boolean isCurrent = (boundCid >= 0 && c.id == boundCid);
+                    float a = isCurrent ? 0.7f : 0.22f;
+                    faceGlow(pose, vc, m.pos, m.face, col[0], col[1], col[2], a, cam);
                     rendered++;
                     if (hoverPos != null && m.pos.equals(hoverPos) && m.face == hoverFace) {
-                        faceGlow(pose, vc, m.pos, m.face, col[0], col[1], col[2], 0.75f, cam);
+                        faceGlow(pose, vc, m.pos, m.face, col[0], col[1], col[2], 0.85f, cam);
                         hoverBound = true;
                     }
                 }
             }
             if (hoverPos != null && hoverFace != null && !hoverBound) {
-                faceGlow(pose, vc, hoverPos, hoverFace, 1f, 0.95f, 0.35f, 0.55f, cam);
+                faceGlow(pose, vc, hoverPos, hoverFace, 1f, 0.95f, 0.35f, 0.6f, cam);
             }
             bs.endBatch(GLOW_RT);
             P2P.LOGGER.debug("[p2p] overlay rendered members={} boundCid={} hover={}/{}", rendered, boundCid, hoverPos, hoverFace);
@@ -131,6 +141,28 @@ public final class ClientForgeEvents {
             // Defensive: a broken overlay must never crash the client.
             P2P.LOGGER.error("[p2p] endpoint overlay render failed; skipping this frame", ex);
         }
+    }
+
+    /** 绑定模式开启时在屏幕底部画一条状态条：当前频道 + 操作提示。 */
+    @SubscribeEvent
+    public static void onRenderGui(RenderGuiEvent.Post evt) {
+        if (!ClientBindState.isActive()) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) return;
+        GuiGraphics gg = evt.getGuiGraphics();
+        int w = mc.getWindow().getGuiScaledWidth();
+        int ch = ClientBindState.getBoundChannel();
+        String text = "P2P 绑定模式" + (ch >= 0 ? " · 频道 #" + ch : " · 未选当前频道")
+                + "  |  右键=输入  左键=输出  Ctrl=连锁  (再按 B 退出)";
+        int pad = 6, fh = 10;
+        int boxW = mc.font.width(text) + pad * 2;
+        int boxX = (w - boxW) / 2;
+        int boxY = mc.getWindow().getGuiScaledHeight() - 24;
+        gg.fill(boxX, boxY, boxX + boxW, boxY + fh + pad * 2, 0xCC2f2f2f);
+        gg.fill(boxX, boxY, boxX + boxW, boxY + 1, 0xFFFFFFFF);
+        gg.fill(boxX, boxY + fh + pad * 2 - 1, boxX + boxW, boxY + fh + pad * 2, 0xFF555555);
+        gg.drawString(mc.font, Component.literal(text).withStyle(ch >= 0 ? net.minecraft.ChatFormatting.GREEN : net.minecraft.ChatFormatting.YELLOW),
+                boxX + pad, boxY + pad, 0xFFFFFFFF, false);
     }
 
     private static void drawHighlight(PoseStack pose, MultiBufferSource.BufferSource bs, Vec3 cam) {

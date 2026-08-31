@@ -46,6 +46,11 @@ public final class FluidTransfer {
         if (outCaps.isEmpty()) return 0;
         int outSize = outCaps.size();
 
+        // 均分模式：本轮可抽取量按输出端数量均分，同时输出到所有输出端。
+        if (channel.distribution == Channel.Distribution.SPLIT_EVENLY) {
+            return splitEvenly(inCaps, outCaps, budget, globalTick);
+        }
+
         // PRIORITY: stable-sort outputs by endpoint priority once per call (highest first).
         if (channel.distribution == Channel.Distribution.PRIORITY) {
             outCaps.sort(Comparator.comparingInt((Cap c) -> c.priority).reversed());
@@ -129,6 +134,75 @@ public final class FluidTransfer {
 
         for (Cap c : dirty) c.markChanged();
         return totalMoved;
+    }
+
+    // ============================ 均分模式 (SPLIT_EVENLY) ============================
+
+    /**
+     * 流体均分：与物品版同构 —— 逐个输入端取本轮可抽取量，按"剩余待发量 / 剩余可接收输出端数"
+     * 配额同时推向所有输出端；某端满了就把份额让给其余端。每个输入端独立计算（不同输入端可能是不同流体）。
+     */
+    private static int splitEvenly(List<Cap> inCaps, List<Cap> outCaps, int budget, int globalTick) {
+        int outSize = outCaps.size();
+        if (outSize == 0 || budget <= 0) return 0;
+
+        int budgetLeft = budget;
+        int totalMoved = 0;
+        Set<Cap> dirty = new HashSet<>();
+        int offset = (int) Math.floorMod(globalTick, (long) outSize);
+
+        for (Cap src : inCaps) {
+            if (budgetLeft <= 0) break;
+            FluidStack avail = src.handler.drain(budgetLeft, IFluidHandler.FluidAction.SIMULATE);
+            if (avail.isEmpty()) continue;
+            if (src.filter != null && !src.filter.test(avail)) continue;
+
+            int pool = avail.getAmount();
+            boolean[] closed = new boolean[outSize];
+            while (pool > 0) {
+                int open = 0;
+                for (boolean c : closed) if (!c) open++;
+                if (open == 0) break;
+                int openLeft = open;
+                boolean progressed = false;
+                for (int k = 0; k < outSize && pool > 0; k++) {
+                    int idx = (offset + k) % outSize;
+                    if (closed[idx]) continue;
+                    int want = Math.min(pool, (pool + openLeft - 1) / openLeft);
+                    openLeft--;
+                    int moved = pushEven(src, outCaps.get(idx), avail, want, dirty);
+                    if (moved > 0) { pool -= moved; budgetLeft -= moved; totalMoved += moved; progressed = true; }
+                    else closed[idx] = true;
+                }
+                if (!progressed) break;
+            }
+            dirty.add(src);
+        }
+
+        for (Cap c : dirty) c.markChanged();
+        return totalMoved;
+    }
+
+    /** 从 {@code src} 抽取至多 {@code want} mB 并灌入 {@code out}，返回实际转移量。 */
+    private static int pushEven(Cap src, Cap out, FluidStack template, int want, Set<Cap> dirty) {
+        if (want <= 0) return 0;
+        if (out.filter != null && !out.filter.test(template)) return 0;
+        FluidStack probe = template.copy();
+        probe.setAmount(want);
+        int canAccept = out.handler.fill(probe, IFluidHandler.FluidAction.SIMULATE);
+        if (canAccept <= 0) return 0;
+
+        FluidStack drained = src.handler.drain(canAccept, IFluidHandler.FluidAction.EXECUTE);
+        if (drained.isEmpty()) return 0;
+        int filled = out.handler.fill(drained, IFluidHandler.FluidAction.EXECUTE);
+        if (filled < drained.getAmount()) {
+            // 容量在模拟之后变化：把没灌进去的部分退回源，避免丢流体
+            FluidStack back = drained.copy();
+            back.setAmount(drained.getAmount() - filled);
+            src.handler.fill(back, IFluidHandler.FluidAction.EXECUTE);
+        }
+        if (filled > 0) dirty.add(out);
+        return filled;
     }
 
     /** True when any input handler can drain at least 1 mB (simulate-only cheap gate). */
