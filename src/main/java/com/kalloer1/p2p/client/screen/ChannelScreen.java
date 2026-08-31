@@ -1,5 +1,6 @@
 package com.kalloer1.p2p.client.screen;
 
+import com.kalloer1.p2p.Lang;
 import com.kalloer1.p2p.P2P;
 import com.kalloer1.p2p.channel.Channel;
 import com.kalloer1.p2p.channel.ChannelType;
@@ -90,7 +91,7 @@ public class ChannelScreen extends Screen {
     private int leftScroll = 0, leftContentH = 0;
     private int memberScroll = 0, memberContentH = 0;
 
-    public ChannelScreen() { super(Component.literal("P2P 频道管理")); }
+    public ChannelScreen() { super(Lang.t(Lang.UI_TITLE)); }
 
     // ============================================================ init
     @Override
@@ -104,7 +105,7 @@ public class ChannelScreen extends Screen {
         openGroups.addAll(ClientChannelCache.INSTANCE.getOpenGroups());
 
         int lx = leftPos + 4, lw = 140;
-        searchBox = new EditBox(this.font, lx + 4, topPos + 8, lw - 12, 14, Component.literal("搜索"));
+        searchBox = new EditBox(this.font, lx + 4, topPos + 8, lw - 12, 14, Lang.t(Lang.UI_SEARCH));
         searchBox.setMaxLength(32);
         searchBox.setBordered(true);
         addRenderableWidget(searchBox);
@@ -112,10 +113,10 @@ public class ChannelScreen extends Screen {
         int rx = leftPos + 148, rw = W - 148 - 4;
         int btnGap = 4;
         int btnW = (rw - 3 * btnGap) / 4;              // row: 红石/分配/分组/清理空气 — four unified buttons
-        redstoneBtn = addRenderableWidget(new FlatButton(Button.builder(Component.literal("红石: " + redstoneLabel(Channel.RedstoneMode.ALWAYS)), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_REDSTONE, 0)).bounds(rx, topPos + 30, btnW, 18)));
-        distBtn = addRenderableWidget(new FlatButton(Button.builder(Component.literal("分配: " + distLabel(Channel.Distribution.ROUND_ROBIN)), b -> sendAction(ChannelActionC2SPacket.Action.CYCLE_DISTRIBUTION, 0)).bounds(rx + btnW + btnGap, topPos + 30, btnW, 18)));
-        groupBtn = addRenderableWidget(new FlatButton(Button.builder(Component.literal("分组: 无"), b -> openGroupSelect()).bounds(rx + 2 * (btnW + btnGap), topPos + 30, btnW, 18)));
-        cleanBtn = addRenderableWidget(new FlatButton(Button.builder(Component.literal("清理空气"), b -> sendAction(ChannelActionC2SPacket.Action.CLEAN_AIR, 0)).bounds(rx + 3 * (btnW + btnGap), topPos + 30, btnW, 18)));
+        redstoneBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_REDSTONE, redstoneLabel(Channel.RedstoneMode.ALWAYS)), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_REDSTONE, 0)).bounds(rx, topPos + 30, btnW, 18)));
+        distBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_DISTRIBUTION, distLabel(Channel.Distribution.ROUND_ROBIN)), b -> sendAction(ChannelActionC2SPacket.Action.CYCLE_DISTRIBUTION, 0)).bounds(rx + btnW + btnGap, topPos + 30, btnW, 18)));
+        groupBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_GROUP, groupLabel(-1)), b -> openGroupSelect()).bounds(rx + 2 * (btnW + btnGap), topPos + 30, btnW, 18)));
+        cleanBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_CLEAN_AIR), b -> sendAction(ChannelActionC2SPacket.Action.CLEAN_AIR, 0)).bounds(rx + 3 * (btnW + btnGap), topPos + 30, btnW, 18)));
 
         // rate: editable value + fine step + unit
         rateEdit = new EditBox(this.font, rx + 24, topPos + 48, 46, 14, Component.literal(""));
@@ -125,7 +126,7 @@ public class ChannelScreen extends Screen {
         addRenderableWidget(rateEdit);
         rateDown = addRenderableWidget(new FlatButton(Button.builder(Component.literal("-"), b -> stepRate(-16)).bounds(rx + 74, topPos + 48, 18, 16)));
         rateUp = addRenderableWidget(new FlatButton(Button.builder(Component.literal("+"), b -> stepRate(16)).bounds(rx + 92, topPos + 48, 18, 16)));
-        maxRateBtn = addRenderableWidget(new FlatButton(Button.builder(Component.literal("MAX"), b -> sendAction(ChannelActionC2SPacket.Action.SET_RATE, ChannelActionC2SPacket.RATE_MAX)).bounds(rx + 112, topPos + 48, 34, 16)));
+        maxRateBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_RATE_MAX), b -> sendAction(ChannelActionC2SPacket.Action.SET_RATE, ChannelActionC2SPacket.RATE_MAX)).bounds(rx + 112, topPos + 48, 34, 16)));
 
         // speed (throttle): how many ticks between passes
         speedEdit = new EditBox(this.font, rx + 24, topPos + 66, 46, 14, Component.literal(""));
@@ -136,15 +137,15 @@ public class ChannelScreen extends Screen {
         speedDown = addRenderableWidget(new FlatButton(Button.builder(Component.literal("-"), b -> stepSpeed(-1)).bounds(rx + 74, topPos + 66, 18, 16)));
         speedUp = addRenderableWidget(new FlatButton(Button.builder(Component.literal("+"), b -> stepSpeed(1)).bounds(rx + 92, topPos + 66, 18, 16)));
 
-        bindBtn = addRenderableWidget(new FlatButton(Button.builder(Component.literal("设为当前绑定频道"), b -> {
+        bindBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_BIND_CHANNEL), b -> {
             if (selectedChannel >= 0) ModMessages.INSTANCE.sendToServer(new SetBindChannelC2SPacket(selectedChannel));
         }).bounds(rx, topPos + H - 22, (rw - 8) / 2, 18)));
-        deleteBtn = addRenderableWidget(new FlatButton(Button.builder(Component.literal("删除频道").withStyle(ChatFormatting.RED), b -> sendAction(ChannelActionC2SPacket.Action.DELETE, 0)).bounds(rx + (rw - 8) / 2 + 8, topPos + H - 22, (rw - 8) / 2, 18)));
+        deleteBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_DELETE_CHANNEL).withStyle(ChatFormatting.RED), b -> sendAction(ChannelActionC2SPacket.Action.DELETE, 0)).bounds(rx + (rw - 8) / 2 + 8, topPos + H - 22, (rw - 8) / 2, 18)));
 
         int btnL = (lw - 2 * btnGap) / 3;              // bottom-left row: 新建频道/新建组/删除组 — unified size
-        createCh = addRenderableWidget(new FlatButton(Button.builder(Component.literal("新建频道"), b -> minecraft.setScreen(new ChannelCreateScreen(this))).bounds(lx, topPos + H - 22, btnL, 18)));
-        createGrp = addRenderableWidget(new FlatButton(Button.builder(Component.literal("新建组"), b -> minecraft.setScreen(new NameInputScreen(this, "新建组", "", 1, -1, null))).bounds(lx + btnL + btnGap, topPos + H - 22, btnL, 18)));
-        deleteGrpBtn = addRenderableWidget(new FlatButton(Button.builder(Component.literal("删除组").withStyle(ChatFormatting.RED), b -> {
+        createCh = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_NEW_CHANNEL), b -> minecraft.setScreen(new ChannelCreateScreen(this))).bounds(lx, topPos + H - 22, btnL, 18)));
+        createGrp = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_NEW_GROUP), b -> minecraft.setScreen(new NameInputScreen(this, Lang.t(Lang.UI_NEW_GROUP), "", 1, -1, null))).bounds(lx + btnL + btnGap, topPos + H - 22, btnL, 18)));
+        deleteGrpBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_DELETE_GROUP).withStyle(ChatFormatting.RED), b -> {
             int targetGrp = selectedGroup;
             if (targetGrp < 0) {
                 Channel gc = findChannel(selectedChannel);
@@ -160,7 +161,7 @@ public class ChannelScreen extends Screen {
         prevNet = addRenderableWidget(new FlatButton(Button.builder(Component.literal("<"), b -> pageNet(-1)).bounds(leftPos + W - 56, topPos - 16 + 1, 18, 14)));
         nextNet = addRenderableWidget(new FlatButton(Button.builder(Component.literal(">"), b -> pageNet(1)).bounds(leftPos + W - 36, topPos - 16 + 1, 18, 14)));
 
-        typeBtn = addRenderableWidget(new FlatButton(Button.builder(Component.literal("介质"), b -> cycleType()).bounds(rx + rw - 70, topPos + 10, 66, 14)));
+        typeBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_MEDIUM), b -> cycleType()).bounds(rx + rw - 70, topPos + 10, 66, 14)));
 
         ModMessages.INSTANCE.sendToServer(new RequestChannelsC2SPacket());
     }
@@ -230,14 +231,14 @@ public class ChannelScreen extends Screen {
         // dimension tooltip: the row only has room for a 2-char label, so the full id is shown on hover
         for (DimHit d : dimHits) {
             if (mx >= d.x && mx <= d.x + d.w && my >= d.y && my <= d.y + d.h) {
-                gg.renderTooltip(this.font, Component.literal("维度: " + d.dim), mx, my);
+                gg.renderTooltip(this.font, Lang.t(Lang.HUD_DIMENSION, d.dim), mx, my);
                 break;
             }
         }
         // block icon tooltip: shows the block name at this endpoint's position
         for (BlockHit b : blockHits) {
             if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
-                gg.renderTooltip(this.font, Component.literal("方块: " + b.block.getName().getString()), mx, my);
+                gg.renderTooltip(this.font, Lang.t(Lang.HUD_BLOCK, b.block.getName()), mx, my);
                 break;
             }
         }
@@ -251,7 +252,7 @@ public class ChannelScreen extends Screen {
         int ty = y - 16;
         gg.fill(x, ty, x + W, ty + 16, TAB);
         gg.fill(x, ty, x + W, ty + 1, HI);
-        gg.drawString(this.font, Component.literal("P2P 频道管理"), x + 6, ty + 4, TITLE, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_TITLE), x + 6, ty + 4, TITLE, false);
         if (!nets.isEmpty()) {
             String nm = trim(nets.get(netIndex).name, 200);
             int nmX = x + W / 2 - this.font.width(nm) / 2;
@@ -315,8 +316,8 @@ public class ChannelScreen extends Screen {
                 gg.fill(lx + 1, ry + rowH - 1, lx + lw - 1, ry + rowH, 0xFF9a9a9a);   // row separator
             }
         }
-        if (rows.isEmpty())
-            gg.drawString(this.font, Component.literal("无匹配频道"), lx + 8, listTop + 10, INK_DIM, false);
+            if (rows.isEmpty())
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_MATCH), lx + 8, listTop + 10, INK_DIM, false);
     }
 
     private List<LeftRow> buildLeftRows() {
@@ -371,9 +372,9 @@ public class ChannelScreen extends Screen {
         if (!has) {
             gg.fill(rx, y + 8, rx + rw, y + H - 26, RIGHT_BG);
             inset(gg, rx, y + 8, rw, (y + H - 26) - (y + 8));
-            gg.drawString(this.font, Component.literal("暂无频道"), rx + 10, y + 24, INK, false);
-            gg.drawString(this.font, Component.literal("点击下方「+ 新建频道」创建一个"), rx + 10, y + 44, INK_DIM, false);
-            gg.drawString(this.font, Component.literal("按 B 进入绑定模式，空手右键=输入 / 左键=输出（Ctrl=连锁）"), rx + 10, y + 62, INK_DIM, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL), rx + 10, y + 24, INK, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT1), rx + 10, y + 44, INK_DIM, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT2), rx + 10, y + 62, INK_DIM, false);
             return;
         }
 
@@ -387,18 +388,18 @@ public class ChannelScreen extends Screen {
         nameHitX = rx + 34; nameHitY = y + 8; nameHitW = this.font.width(nm) + 4; nameHitH = 15; nameHitValid = true;
 
         // config reflects state
-        redstoneBtn.setMessage(Component.literal("红石: " + redstoneLabel(c.redstoneMode)));
-        distBtn.setMessage(Component.literal("分配: " + distLabel(c.distribution)));
-        groupBtn.setMessage(Component.literal("分组: " + groupLabel(c.groupId)));
-        typeBtn.setMessage(Component.literal("介质: " + typeLabel(c.type)));
+        redstoneBtn.setMessage(Lang.t(Lang.UI_REDSTONE, redstoneLabel(c.redstoneMode)));
+        distBtn.setMessage(Lang.t(Lang.UI_DISTRIBUTION, distLabel(c.distribution)));
+        groupBtn.setMessage(Lang.t(Lang.UI_GROUP, groupLabel(c.groupId)));
+        typeBtn.setMessage(Lang.t(Lang.UI_MEDIUM, typeLabel(c.type)));
         // rate / speed editable values (refresh the box text only when not actively typing)
         if (!rateEdit.isFocused() && !rateEdit.getValue().equals(String.valueOf(c.rate))) rateEdit.setValue(String.valueOf(c.rate));
         if (!speedEdit.isFocused() && !speedEdit.getValue().equals(String.valueOf(c.speed))) speedEdit.setValue(String.valueOf(c.speed));
-        String unitShort = c.type == ChannelType.ITEM ? "物品" : c.type == ChannelType.FLUID ? "mB" : "FE";
-        gg.drawString(this.font, Component.literal("速率"), rx, y + 50, INK, false);
+        String unitShort = c.type == ChannelType.ITEM ? Lang.t(Lang.UI_UNIT_ITEM).getString() : c.type == ChannelType.FLUID ? Lang.t(Lang.UI_UNIT_MB).getString() : Lang.t(Lang.UI_UNIT_FE).getString();
+        gg.drawString(this.font, Lang.t(Lang.UI_RATE), rx, y + 50, INK, false);
         gg.drawString(this.font, Component.literal(unitShort + "≈" + formatPerSec(c.rate, c.speed) + "/s"), rx + 150, y + 58, INK_DIM, false);
-        gg.drawString(this.font, Component.literal("节流"), rx, y + 68, INK, false);
-        gg.drawString(this.font, Component.literal("每 " + c.speed + " tick"), rx + 114, y + 68, INK_DIM, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_THROTTLE), rx, y + 68, INK, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_EVERY_TICKS, c.speed), rx + 114, y + 68, INK_DIM, false);
 
         // endpoint table (fixed-column layout so direction and IN/OUT line up regardless of coordinate width).
         // Group/clean buttons moved up to the 红石/分配 row, so the table starts sooner and shows more coordinates.
@@ -408,20 +409,20 @@ public class ChannelScreen extends Screen {
         inset(gg, rx, mTop, rw, mBottom - mTop);
         // header strip
         gg.fill(rx + 1, mTop + 1, rx + rw - 1, mTop + headerH - 1, SEL);
-        gg.drawString(this.font, Component.literal("维度"), rx + 4, mTop + 5, 0xFF2b2b2b, false);
-        gg.drawString(this.font, Component.literal("坐标"), rx + 29, mTop + 5, 0xFF2b2b2b, false);
-        gg.drawString(this.font, Component.literal("面"), rx + 93, mTop + 5, 0xFF2b2b2b, false);
-        gg.drawString(this.font, Component.literal("流向"), rx + 108, mTop + 5, 0xFF2b2b2b, false);
-        String cnt = c.members.size() + " 个";
-        gg.drawString(this.font, Component.literal(cnt), rx + rw - 6 - this.font.width(cnt), mTop + 5, 0xFF2b2b2b, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_DIM), rx + 4, mTop + 5, 0xFF2b2b2b, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_POS), rx + 29, mTop + 5, 0xFF2b2b2b, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_FACE), rx + 93, mTop + 5, 0xFF2b2b2b, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_FLOW), rx + 108, mTop + 5, 0xFF2b2b2b, false);
+        Component cnt = Lang.t(Lang.UI_MEMBER_COUNT, c.members.size());
+        gg.drawString(this.font, cnt, rx + rw - 6 - this.font.width(cnt), mTop + 5, 0xFF2b2b2b, false);
 
         memberBtns.clear();
         posHits.clear();
         dimHits.clear();
         blockHits.clear();
         if (c.members.isEmpty()) {
-            gg.drawString(this.font, Component.literal("这个频道还没有端点"), rx + 10, mTop + 26, 0xFF2b2b2b, false);
-            gg.drawString(this.font, Component.literal("按 B 进入绑定模式，空手右键=输入 / 左键=输出（Ctrl=连锁）"), rx + 10, mTop + 42, 0xFF5a5a5a, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_ENDPOINT), rx + 10, mTop + 26, 0xFF2b2b2b, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT2), rx + 10, mTop + 42, 0xFF5a5a5a, false);
             return;
         }
         memberContentH = c.members.size() * rowH;
@@ -475,9 +476,9 @@ public class ChannelScreen extends Screen {
             posHits.add(new PosHit(i, posX - 2, ry + 2, this.font.width(pos) + 4, 14));
 
             // face direction (centered in its column)
-            String face = faceShort(m.face);
+            Component face = faceShort(m.face);
             int faceW = this.font.width(face);
-            gg.drawString(this.font, Component.literal(face), rx + colFaceX + (colFaceW - faceW) / 2, ry + 4, 0xFF2b2b2b, false);
+            gg.drawString(this.font, face, rx + colFaceX + (colFaceW - faceW) / 2, ry + 4, 0xFF2b2b2b, false);
             faceHits.add(new FaceHit(i, rx + colFaceX - 2, ry + 1, colFaceW + 4, 14));
 
             // action buttons (fixed positions)
@@ -489,7 +490,7 @@ public class ChannelScreen extends Screen {
             String roleS = m.role == Role.INPUT ? "IN" : "OUT";
             gg.drawString(this.font, Component.literal(roleS), tbX + 3, ry + 4, 0xFFFFFFFF, false);
             addInline(gg, pX, ry + 1, colPriorityW, 14, "P" + m.priority, false);
-            addInline(gg, fbX, ry + 1, colFilterW, 14, "过滤", hasFilter(m));
+            addInline(gg, fbX, ry + 1, colFilterW, 14, Lang.t(Lang.UI_FILTER).getString(), hasFilter(m));
             addDanger(gg, dbX, ry + 1, colDelW, 14, "×");
             memberBtns.add(new MemberBtn(i, 0, fbX, ry + 1, colFilterW, 14));
             memberBtns.add(new MemberBtn(i, 1, tbX, ry + 1, colToggleW, 14));
@@ -519,7 +520,7 @@ public class ChannelScreen extends Screen {
         }
         if (nameHitValid && ix >= nameHitX && ix <= nameHitX + nameHitW && iy >= nameHitY && iy <= nameHitY + nameHitH) {
             Channel c = findChannel(selectedChannel);
-            if (c != null) minecraft.setScreen(new NameInputScreen(this, "重命名频道", c.name == null ? "" : c.name, 0, c.id, null));
+            if (c != null) minecraft.setScreen(new NameInputScreen(this, Lang.t(Lang.UI_RENAME), c.name == null ? "" : c.name, 0, c.id, null));
             return true;
         }
         // Double-click a member's coordinate text → jump to that block: draw a see-through red frame in-world
@@ -729,10 +730,10 @@ public class ChannelScreen extends Screen {
     }
 
     // ============================================================ helpers
-    private String groupLabel(int gid) {
-        if (gid < 0) return "无";
-        for (Group g : groups) if (g.id == gid) return g.name;
-        return "无";
+    private Component groupLabel(int gid) {
+        if (gid < 0) return Lang.t(Lang.UI_GROUP_NONE);
+        for (Group g : groups) if (g.id == gid) return Component.literal(g.name);
+        return Lang.t(Lang.UI_GROUP_NONE);
     }
 
     private boolean hasFilter(Member m) { return (m.extractFilter != null) || (m.insertFilter != null); }
@@ -741,7 +742,7 @@ public class ChannelScreen extends Screen {
         if (q.isEmpty()) return true;
         if (c.name != null && c.name.toLowerCase().contains(q)) return true;
         if (String.valueOf(c.id).contains(q)) return true;
-        if (typeLabel(c.type).contains(q) || c.type.name().toLowerCase().contains(q)) return true;
+        if (typeLabel(c.type).getString().contains(q) || c.type.name().toLowerCase().contains(q)) return true;
         for (Member m : c.members)
             if (m.dim.toString().toLowerCase().contains(q)
                     || (m.pos.getX() + "," + m.pos.getY() + "," + m.pos.getZ()).contains(q)) return true;
@@ -758,26 +759,26 @@ public class ChannelScreen extends Screen {
         return t == ChannelType.ITEM ? ITEM_C : t == ChannelType.FLUID ? FLUID_C : ENERGY_C;
     }
 
-    private static String typeLabel(ChannelType t) {
-        return t == ChannelType.ITEM ? "物品" : t == ChannelType.FLUID ? "流体" : "能量";
+    private static Component typeLabel(ChannelType t) {
+        return t == ChannelType.ITEM ? Lang.t(Lang.UI_TYPE_ITEM) : t == ChannelType.FLUID ? Lang.t(Lang.UI_TYPE_FLUID) : Lang.t(Lang.UI_TYPE_ENERGY);
     }
 
-    private static String distLabel(Channel.Distribution d) {
+    private static Component distLabel(Channel.Distribution d) {
         return switch (d) {
-            case PRIORITY -> "优先";
-            case NEAREST -> "就近";
-            case FARTHEST -> "最远";
-            case SPLIT_EVENLY -> "均分";
-            default -> "轮询";
+            case PRIORITY -> Lang.t(Lang.UI_DIST_PRIORITY);
+            case NEAREST -> Lang.t(Lang.UI_DIST_NEAREST);
+            case FARTHEST -> Lang.t(Lang.UI_DIST_FARTHEST);
+            case SPLIT_EVENLY -> Lang.t(Lang.UI_DIST_SPLIT);
+            default -> Lang.t(Lang.UI_DIST_ROUND);
         };
     }
 
-    private static String redstoneLabel(Channel.RedstoneMode m) {
+    private static Component redstoneLabel(Channel.RedstoneMode m) {
         return switch (m) {
-            case HIGH -> "高电平";
-            case LOW -> "低电平";
-            case NEVER -> "禁用";
-            default -> "忽略";
+            case HIGH -> Lang.t(Lang.UI_RED_HIGH);
+            case LOW -> Lang.t(Lang.UI_RED_LOW);
+            case NEVER -> Lang.t(Lang.UI_RED_NEVER);
+            default -> Lang.t(Lang.UI_RED_IGNORE);
         };
     }
 
@@ -812,7 +813,7 @@ public class ChannelScreen extends Screen {
     private void cyclePriority(Member m) {
         Channel c = findChannel(selectedChannel);
         if (c == null) return;
-        minecraft.setScreen(new NameInputScreen(this, "设置优先级", String.valueOf(m.priority), 2, c.id, m.key()));
+        minecraft.setScreen(new NameInputScreen(this, Lang.t(Lang.UI_SET_PRIORITY), String.valueOf(m.priority), 2, c.id, m.key()));
     }
 
     private static int dimColor(String dim) {
@@ -824,9 +825,9 @@ public class ChannelScreen extends Screen {
 
     /** Two-character dimension label that fits the endpoint row; the full id is available as a tooltip. */
     private static String dimShort(String dim) {
-        if (dim.equals("minecraft:overworld")) return "主界";
-        if (dim.equals("minecraft:the_nether")) return "下界";
-        if (dim.equals("minecraft:the_end")) return "末地";
+        if (dim.equals("minecraft:overworld")) return Lang.t(Lang.UI_DIM_OVERWORLD).getString();
+        if (dim.equals("minecraft:the_nether")) return Lang.t(Lang.UI_DIM_NETHER).getString();
+        if (dim.equals("minecraft:the_end")) return Lang.t(Lang.UI_DIM_END).getString();
         int colon = dim.indexOf(':');
         String ns = colon > 0 ? dim.substring(0, colon) : dim;
         if (ns.equals("minecraft")) {
@@ -836,9 +837,9 @@ public class ChannelScreen extends Screen {
         return ns.length() >= 2 ? ns.substring(0, 2).toUpperCase() : ns.toUpperCase();
     }
 
-    private static String faceShort(net.minecraft.core.Direction f) {
+    private static Component faceShort(net.minecraft.core.Direction f) {
         return switch (f) {
-            case UP -> "上"; case DOWN -> "下"; case NORTH -> "北"; case SOUTH -> "南"; case EAST -> "东"; case WEST -> "西";
+            case UP -> Lang.t(Lang.UI_FACE_UP); case DOWN -> Lang.t(Lang.UI_FACE_DOWN); case NORTH -> Lang.t(Lang.UI_FACE_NORTH); case SOUTH -> Lang.t(Lang.UI_FACE_SOUTH); case EAST -> Lang.t(Lang.UI_FACE_EAST); case WEST -> Lang.t(Lang.UI_FACE_WEST);
         };
     }
 
@@ -862,7 +863,7 @@ public class ChannelScreen extends Screen {
         int col = typeColor(t);
         gg.fill(bx, by, bx + 28, by + 11, col);
         gg.fill(bx, by, bx + 28, by + 1, 0x55ffffff & 0xFFFFFFFF);
-        gg.drawString(this.font, Component.literal(typeLabel(t)), bx + 4, by + 2, 0xFFFFFFFF);
+        gg.drawString(this.font, typeLabel(t), bx + 4, by + 2, 0xFFFFFFFF);
     }
 
     private record LeftRow(int kind, int id, String label, ChannelType type, int color, boolean child) {}

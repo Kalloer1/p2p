@@ -39,6 +39,7 @@ public class P2PJeiPlugin implements IModPlugin {
         @Override
         public <I> List<IGhostIngredientHandler.Target<I>> getTargetsTyped(FilterEditor gui, ITypedIngredient<I> ingredient, boolean doStart) {
             if (gui.getType() != ChannelType.ITEM) return Collections.emptyList();
+            if (!gui.isItemPage()) return Collections.emptyList();   // only the 物品 page uses the marker grid
             if (ingredient.getItemStack().isEmpty()) return Collections.emptyList();
             Rect2i area = gui.getMarkerGridArea();
             IGhostIngredientHandler.Target<I> target = new IGhostIngredientHandler.Target<>() {

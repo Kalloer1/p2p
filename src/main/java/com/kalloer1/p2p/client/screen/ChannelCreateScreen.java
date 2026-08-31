@@ -1,5 +1,6 @@
 package com.kalloer1.p2p.client.screen;
 
+import com.kalloer1.p2p.Lang;
 import com.kalloer1.p2p.network.ChannelActionC2SPacket;
 import com.kalloer1.p2p.network.ModMessages;
 import com.mojang.blaze3d.platform.InputConstants;
@@ -21,7 +22,7 @@ public class ChannelCreateScreen extends Screen {
     private Button itemBtn, fluidBtn, energyBtn, cancelBtn;
 
     public ChannelCreateScreen(Screen parent) {
-        super(Component.literal("新建频道"));
+        super(Lang.t(Lang.UI_NEW_CHANNEL));
         this.parent = parent;
     }
 
@@ -30,10 +31,10 @@ public class ChannelCreateScreen extends Screen {
         leftPos = (this.width - W) / 2;
         topPos = (this.height - H) / 2;
         int rx = leftPos + 12;
-        itemBtn = addRenderableWidget(Button.builder(Component.literal("物品"), b -> create("ITEM")).bounds(rx, topPos + 48, 112, 44).build());
-        fluidBtn = addRenderableWidget(Button.builder(Component.literal("流体"), b -> create("FLUID")).bounds(rx + 124, topPos + 48, 112, 44).build());
-        energyBtn = addRenderableWidget(Button.builder(Component.literal("能量"), b -> create("ENERGY")).bounds(rx + 248, topPos + 48, 112, 44).build());
-        cancelBtn = addRenderableWidget(Button.builder(Component.literal("取消"), b -> minecraft.setScreen(parent)).bounds(leftPos + W - 96, topPos + H - 26, 88, 20).build());
+        itemBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_TYPE_ITEM), b -> create("ITEM")).bounds(rx, topPos + 48, 112, 44).build());
+        fluidBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_TYPE_FLUID), b -> create("FLUID")).bounds(rx + 124, topPos + 48, 112, 44).build());
+        energyBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_TYPE_ENERGY), b -> create("ENERGY")).bounds(rx + 248, topPos + 48, 112, 44).build());
+        cancelBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_CANCEL), b -> minecraft.setScreen(parent)).bounds(leftPos + W - 96, topPos + H - 26, 88, 20).build());
     }
 
     private void create(String type) {
@@ -59,7 +60,7 @@ public class ChannelCreateScreen extends Screen {
         // header strip
         gg.fill(x, y, x + W, y + 17, TAB);
         gg.fill(x, y, x + W, y + 1, HI);
-        gg.drawString(this.font, Component.literal("新建频道 · 选择类型"), x + 6, y + 5, TITLE, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_CREATE_HEADER), x + 6, y + 5, TITLE, false);
         // type icons removed (reverted to plain stone UI)
     }
 

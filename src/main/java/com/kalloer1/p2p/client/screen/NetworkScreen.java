@@ -1,9 +1,10 @@
 package com.kalloer1.p2p.client.screen;
 
-import com.kalloer1.p2p.client.ClientChannelCache;
+import com.kalloer1.p2p.Lang;
 import com.kalloer1.p2p.channel.Network;
-import com.kalloer1.p2p.network.RequestChannelsC2SPacket;
+import com.kalloer1.p2p.client.ClientChannelCache;
 import com.kalloer1.p2p.network.ModMessages;
+import com.kalloer1.p2p.network.RequestChannelsC2SPacket;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -36,16 +37,17 @@ public class NetworkScreen extends Screen {
     private Button openBtn, cancelBtn;
     private final List<Hit> rows = new ArrayList<>();
     private int scroll = 0, contentH = 0;
+    private CompoundTag lastData = null;
 
-    public NetworkScreen() { super(Component.literal("选择网络")); }
+    public NetworkScreen() { super(Lang.t(Lang.UI_SELECT_NETWORK)); }
 
     @Override
     protected void init() {
         leftPos = (this.width - W) / 2;
         topPos = (this.height - H) / 2;
         load();
-        openBtn = addRenderableWidget(Button.builder(Component.literal("进入此网络"), b -> enter()).bounds(leftPos + W - 180, topPos + H - 24, 84, 20).build());
-        cancelBtn = addRenderableWidget(Button.builder(Component.literal("返回"), b -> minecraft.setScreen(new ChannelScreen())).bounds(leftPos + W - 92, topPos + H - 24, 84, 20).build());
+        openBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_ENTER_NETWORK), b -> enter()).bounds(leftPos + W - 180, topPos + H - 24, 84, 20).build());
+        cancelBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_BACK), b -> minecraft.setScreen(new ChannelScreen())).bounds(leftPos + W - 92, topPos + H - 24, 84, 20).build());
         ModMessages.INSTANCE.sendToServer(new RequestChannelsC2SPacket());
     }
 
@@ -73,7 +75,6 @@ public class NetworkScreen extends Screen {
         drawPanel(gg);
         super.render(gg, mx, my, pt);
     }
-    private CompoundTag lastData = null;
 
     private void drawPanel(GuiGraphics gg) {
         int x = leftPos, y = topPos;
@@ -83,8 +84,8 @@ public class NetworkScreen extends Screen {
         int ty = y - 16;
         gg.fill(x, ty, x + W, ty + 16, TAB);
         gg.fill(x, ty, x + W, ty + 1, HI);
-        gg.drawString(this.font, Component.literal("选择网络"), x + 6, ty + 4, TITLE, false);
-        gg.drawString(this.font, Component.literal("共享网络：/p2p invite <玩家>"), x + W / 2 - 84, ty + 4, 0xFFc9c9c9, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_SELECT_NETWORK), x + 6, ty + 4, TITLE, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_SHARE_HINT), x + W / 2 - 84, ty + 4, 0xFFc9c9c9, false);
 
         // panel + bevel
         gg.fill(x, y, x + W, y + H, STONE);
@@ -111,21 +112,21 @@ public class NetworkScreen extends Screen {
             if (sel) gg.fill(x + 5, ry + 1, x + W - 5, ry + rowH - 1, SEL);
             gg.drawString(this.font, Component.literal(trim(n.name, 180)), x + 10, ry + 4, INK, false);
             String role = roleOf(n);
-            String meta = "频道 " + chanCounts.get(i) + (role.isEmpty() ? "" : "  ·  " + role);
+            String meta = Lang.t(Lang.UI_CHANNEL_COUNT, chanCounts.get(i)).getString() + (role.isEmpty() ? "" : "  ·  " + role);
             gg.drawString(this.font, Component.literal(meta), x + 10, ry + 16, INK_DIM, false);
             rows.add(new Hit(x + 5, ry + 1, W - 10, rowH - 1, i));
         }
         if (nets.isEmpty())
-            gg.drawString(this.font, Component.literal("没有可访问的网络"), x + 12, listTop + 12, INK_DIM, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_NETWORK), x + 12, listTop + 12, INK_DIM, false);
     }
 
     /** 本机玩家在该网络里的身份：拥有者 / 管理员 / 共享（被邀请加入）。 */
     private String roleOf(Network n) {
         if (this.minecraft == null || this.minecraft.player == null) return "";
         String me = this.minecraft.player.getStringUUID();
-        if (n.owner != null && n.owner.equals(me)) return "拥有者";
-        if (n.admins.contains(me)) return "管理员";
-        if (n.members.contains(me)) return "共享";
+        if (n.owner != null && n.owner.equals(me)) return Lang.t(Lang.UI_ROLE_OWNER).getString();
+        if (n.admins.contains(me)) return Lang.t(Lang.UI_ROLE_ADMIN).getString();
+        if (n.members.contains(me)) return Lang.t(Lang.UI_ROLE_SHARED).getString();
         return "";
     }
 

@@ -1,5 +1,6 @@
 package com.kalloer1.p2p.client.screen;
 
+import com.kalloer1.p2p.Lang;
 import com.kalloer1.p2p.channel.Group;
 import com.kalloer1.p2p.network.ChannelActionC2SPacket;
 import com.kalloer1.p2p.network.ModMessages;
@@ -35,11 +36,11 @@ public class GroupSelectScreen extends Screen {
     private int selected = -1;
 
     public GroupSelectScreen(Screen parent, int channelId, int currentGroupId, List<Group> groups) {
-        super(Component.literal("选择分组"));
+        super(Lang.t(Lang.UI_SELECT_GROUP));
         this.parent = parent;
         this.channelId = channelId;
         this.currentGroupId = currentGroupId;
-        rows.add(new GroupRow(-1, "(无分组)"));
+        rows.add(new GroupRow(-1, Lang.t(Lang.UI_GROUP_NONE_OPTION).getString()));
         for (Group g : groups) rows.add(new GroupRow(g.id, g.name));
         for (int i = 0; i < rows.size(); i++) if (rows.get(i).id == currentGroupId) { selected = i; break; }
         if (selected < 0) selected = 0;
@@ -49,9 +50,9 @@ public class GroupSelectScreen extends Screen {
     protected void init() {
         leftPos = (this.width - W) / 2;
         topPos = (this.height - H) / 2;
-        okBtn = addRenderableWidget(Button.builder(Component.literal("确定"), b -> confirm())
+        okBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_OK), b -> confirm())
                 .bounds(leftPos + W - 92, topPos + H - 24, 84, 20).build());
-        addRenderableWidget(Button.builder(Component.literal("取消"), b -> minecraft.setScreen(parent))
+        addRenderableWidget(Button.builder(Lang.t(Lang.UI_CANCEL), b -> minecraft.setScreen(parent))
                 .bounds(leftPos + 8, topPos + H - 24, 84, 20).build());
     }
 
@@ -69,7 +70,7 @@ public class GroupSelectScreen extends Screen {
         int ty = y - 16;
         gg.fill(x, ty, x + W, ty + 16, TAB);
         gg.fill(x, ty, x + W, ty + 1, HI);
-        gg.drawString(this.font, Component.literal("选择分组"), x + 6, ty + 4, TITLE, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_SELECT_GROUP), x + 6, ty + 4, TITLE, false);
 
         // panel + bevel
         gg.fill(x, y, x + W, y + H, STONE);
@@ -100,7 +101,7 @@ public class GroupSelectScreen extends Screen {
             hits.add(new Hit(x + 5, ry + 1, W - 10, rowH - 1, i));
         }
         if (rows.isEmpty())
-            gg.drawString(this.font, Component.literal("没有可选分组"), x + 12, listTop + 12, INK_DIM, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_GROUP), x + 12, listTop + 12, INK_DIM, false);
     }
 
     @Override

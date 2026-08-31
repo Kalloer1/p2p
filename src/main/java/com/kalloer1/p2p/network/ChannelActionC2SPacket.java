@@ -1,5 +1,6 @@
 package com.kalloer1.p2p.network;
 
+import com.kalloer1.p2p.Lang;
 import com.kalloer1.p2p.P2P;
 import com.kalloer1.p2p.channel.Channel;
 import com.kalloer1.p2p.channel.ChannelManager;
@@ -94,7 +95,7 @@ public class ChannelActionC2SPacket {
             if (target == null) return;
             if (!cm.canEditChannel(player, target)) {
                 player.displayClientMessage(
-                        Component.literal("频道 #" + channelId + " 属于别人的网络，你没有改动权限。").withStyle(ChatFormatting.RED), true);
+                        Lang.t(Lang.MSG_NO_PERM, channelId).withStyle(ChatFormatting.RED), true);
                 return;
             }
         }
@@ -102,7 +103,7 @@ public class ChannelActionC2SPacket {
             Group g = cm.getGroup(intVal);
             if (g != null && !cm.canEditGroup(player, g)) {
                 player.displayClientMessage(
-                        Component.literal("这个组属于别人的网络，你没有改动权限。").withStyle(ChatFormatting.RED), true);
+                        Lang.t(Lang.MSG_NO_PERM_GROUP).withStyle(ChatFormatting.RED), true);
                 return;
             }
         }
@@ -205,7 +206,7 @@ public class ChannelActionC2SPacket {
                     if (removed) {
                         cm.setDirty();
                         player.displayClientMessage(
-                                Component.literal("已从频道 #" + channelId + " 移除端点 " + memberKey)
+                                Lang.t(Lang.MSG_ENDPOINT_REMOVED_KEY, channelId, memberKey)
                                         .withStyle(ChatFormatting.YELLOW), true);
                         P2P.LOGGER.info("[p2p] REMOVE_MEMBER: channel={} memberKey={}", channelId, memberKey);
                     }
@@ -214,9 +215,9 @@ public class ChannelActionC2SPacket {
             case CLEAN_AIR -> {
                 int removed = cm.removeAirMembers(player, channelId);
                 if (removed > 0)
-                    player.displayClientMessage(Component.literal("已清除 " + removed + " 个空气坐标").withStyle(ChatFormatting.YELLOW), true);
+                    player.displayClientMessage(Lang.t(Lang.MSG_CLEARED_AIR, removed).withStyle(ChatFormatting.YELLOW), true);
                 else
-                    player.displayClientMessage(Component.literal("没有需要清理的空气坐标").withStyle(ChatFormatting.GRAY), true);
+                    player.displayClientMessage(Lang.t(Lang.MSG_NO_AIR).withStyle(ChatFormatting.GRAY), true);
             }
         }
         // Persist every mutation above (rate/speed/face/priority/role/filter/redstone/distribution...).

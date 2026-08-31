@@ -1,5 +1,6 @@
 package com.kalloer1.p2p.client;
 
+import com.kalloer1.p2p.Lang;
 import com.kalloer1.p2p.network.BindModeC2SPacket;
 import com.kalloer1.p2p.network.ModMessages;
 import net.minecraft.ChatFormatting;
@@ -32,13 +33,12 @@ public final class ClientBindState {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
         if (active) {
-            String ch = boundChannel >= 0 ? "（当前频道 #" + boundChannel + "）" : "（还没选当前频道，在 P2P 界面点『设为当前绑定频道』）";
             mc.player.displayClientMessage(
-                    Component.literal("绑定模式已开启：空手右键=输入 / 左键=输出，按住 Ctrl=连锁 " + ch)
-                            .withStyle(ChatFormatting.GREEN), true);
+                    (boundChannel >= 0 ? Lang.t(Lang.MSG_BIND_ON, boundChannel)
+                            : Lang.t(Lang.MSG_BIND_ON_NO_CHANNEL)).withStyle(ChatFormatting.GREEN), true);
         } else {
             mc.player.displayClientMessage(
-                    Component.literal("绑定模式已关闭").withStyle(ChatFormatting.YELLOW), true);
+                    Lang.t(Lang.MSG_BIND_OFF).withStyle(ChatFormatting.YELLOW), true);
         }
     }
 }

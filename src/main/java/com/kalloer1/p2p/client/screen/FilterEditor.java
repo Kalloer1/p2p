@@ -1,5 +1,6 @@
 package com.kalloer1.p2p.client.screen;
 
+import com.kalloer1.p2p.Lang;
 import com.kalloer1.p2p.channel.ChannelType;
 import com.kalloer1.p2p.channel.Filter;
 import com.kalloer1.p2p.channel.Member;
@@ -95,7 +96,7 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     public FilterEditor(Screen parent, int channelId, ChannelType type, Member member) {
         super(new FilterMenu(Minecraft.getInstance().player.getInventory(), type),
                 Minecraft.getInstance().player.getInventory(),
-                Component.literal("过滤编辑器"));
+                Lang.t(Lang.UI_FILTER_TITLE));
         this.parent = parent;
         this.channelId = channelId;
         this.chType = type;
@@ -124,6 +125,9 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     public Rect2i getMarkerGridArea() {
         return new Rect2i(leftPos + GRID_X, topPos + GRID_Y, GRID_COLS * SLOT, GRID_ROWS * SLOT);
     }
+
+    /** JEI ghost-drag may only drop an item onto the grid while the ITEM page is active. */
+    public boolean isItemPage() { return page == Page.ITEM; }
 
     /** Called by the JEI ghost handler and by clicking an inventory slot. */
     public void addMarker(ItemStack stack) {
@@ -165,37 +169,37 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         int x = leftPos, y = topPos;
         syncGhost();
 
-        addRenderableWidget(new FlatButton(Button.builder(Component.literal("取消"), b -> onClose())
+        addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_CANCEL), b -> onClose())
                 .bounds(x + 88, y + 4, 38, 14)));
-        addRenderableWidget(new FlatButton(Button.builder(Component.literal("完成").withStyle(ChatFormatting.GREEN), b -> finish())
+        addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_DONE).withStyle(ChatFormatting.GREEN), b -> finish())
                 .bounds(x + 130, y + 4, 38, 14)));
 
         // 三个标签页：物品模板 / 标签 / NBT
-        btnItem = addRenderableWidget(new FlatButton(Button.builder(Component.literal("物品"), b -> setPage(Page.ITEM)).bounds(x + 4, y + ROW_TAB, 54, 16)));
-        btnTag  = addRenderableWidget(new FlatButton(Button.builder(Component.literal("标签"), b -> setPage(Page.TAG)).bounds(x + 60, y + ROW_TAB, 54, 16)));
-        btnNbt  = addRenderableWidget(new FlatButton(Button.builder(Component.literal("NBT"), b -> setPage(Page.NBT)).bounds(x + 116, y + ROW_TAB, 54, 16)));
+        btnItem = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_TAB_ITEM), b -> setPage(Page.ITEM)).bounds(x + 4, y + ROW_TAB, 54, 16)));
+        btnTag  = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_TAB_TAG), b -> setPage(Page.TAG)).bounds(x + 60, y + ROW_TAB, 54, 16)));
+        btnNbt  = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_TAB_NBT), b -> setPage(Page.NBT)).bounds(x + 116, y + ROW_TAB, 54, 16)));
 
         if (chType == ChannelType.ITEM) {
-            modeBtn = addRenderableWidget(new FlatButton(Button.builder(Component.literal("模式: " + modeLabel()), b -> {
+            modeBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_MODE, modeLabel()), b -> {
                 mode = (mode == Filter.Mode.WHITELIST ? Filter.Mode.BLACKLIST : Filter.Mode.WHITELIST);
-                b.setMessage(Component.literal("模式: " + modeLabel()));
+                b.setMessage(Lang.t(Lang.UI_MODE, modeLabel()));
             }).bounds(x + 8, y + ROW_CONTENT, 80, 16)));
 
-            nbtBtn = addRenderableWidget(new FlatButton(Button.builder(Component.literal("NBT: " + (matchNBT ? "严格" : "忽略")), b -> {
+            nbtBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_NBT_SWITCH, nbtLabel()), b -> {
                 matchNBT = !matchNBT;
-                b.setMessage(Component.literal("NBT: " + (matchNBT ? "严格" : "忽略")));
+                b.setMessage(Lang.t(Lang.UI_NBT_SWITCH, nbtLabel()));
             }).bounds(x + 92, y + ROW_CONTENT, 76, 16)));
 
-            tagBox = new EditBox(this.font, x + 9, y + ROW_CONTENT, 106, 14, Component.literal("标签"));
+            tagBox = new EditBox(this.font, x + 9, y + ROW_CONTENT, 106, 14, Lang.t(Lang.UI_TAG_HINT));
             tagBox.setMaxLength(64);
-            tagBox.setHint(Component.literal("forge:ingots/iron"));
+            tagBox.setHint(Lang.t(Lang.UI_TAG_PLACEHOLDER));
             addRenderableWidget(tagBox);
-            addTagBtn = addRenderableWidget(new FlatButton(Button.builder(Component.literal("加标签"), b -> addTagFromBox())
+            addTagBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_ADD_TAG), b -> addTagFromBox())
                     .bounds(x + 118, y + ROW_CONTENT - 1, 50, 16)));
 
-            regexBox = new EditBox(this.font, x + 9, y + ROW_REGEX, 158, 14, Component.literal("NBT 正则"));
+            regexBox = new EditBox(this.font, x + 9, y + ROW_REGEX, 158, 14, Lang.t(Lang.UI_NBT_REGEX));
             regexBox.setMaxLength(128);
-            regexBox.setHint(Component.literal("NBT 正则，如 .*Damage:0.*"));
+            regexBox.setHint(Lang.t(Lang.UI_NBT_REGEX_HINT));
             regexBox.setValue(nbtRegex);
             addRenderableWidget(regexBox);
         } else {
@@ -216,12 +220,13 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         if (tagBox != null) tagBox.visible = (page == Page.TAG);
         if (addTagBtn != null) addTagBtn.visible = (page == Page.TAG);
         if (regexBox != null) regexBox.visible = (page == Page.NBT);
-        btnItem.setMessage(Component.literal((page == Page.ITEM ? "▶ " : "") + "物品"));
-        btnTag.setMessage(Component.literal((page == Page.TAG ? "▶ " : "") + "标签"));
-        btnNbt.setMessage(Component.literal((page == Page.NBT ? "▶ " : "") + "NBT"));
+        btnItem.setMessage(Component.literal(page == Page.ITEM ? "▶ " : "").append(Lang.t(Lang.UI_TAB_ITEM)));
+        btnTag.setMessage(Component.literal(page == Page.TAG ? "▶ " : "").append(Lang.t(Lang.UI_TAB_TAG)));
+        btnNbt.setMessage(Component.literal(page == Page.NBT ? "▶ " : "").append(Lang.t(Lang.UI_TAB_NBT)));
     }
 
-    private String modeLabel() { return mode == Filter.Mode.WHITELIST ? "白名单" : "黑名单"; }
+    private Component modeLabel() { return mode == Filter.Mode.WHITELIST ? Lang.t(Lang.UI_MODE_WHITELIST) : Lang.t(Lang.UI_MODE_BLACKLIST); }
+    private Component nbtLabel() { return matchNBT ? Lang.t(Lang.UI_NBT_STRICT) : Lang.t(Lang.UI_NBT_IGNORE); }
 
     private void addTagFromBox() {
         String v = tagBox.getValue().trim();
@@ -285,20 +290,20 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         super.renderLabels(gg, mx, my);   // title + "物品栏", vanilla dark-grey ink
         if (chType == ChannelType.ENERGY) {
             gg.fill(GRID_X, GRID_Y, GRID_X + GRID_COLS * SLOT, GRID_Y + GRID_ROWS * SLOT, 0xC0C6C6C6);
-            gg.drawString(this.font, Component.literal("能量频道无需过滤（始终通过）"), GRID_X + 4, GRID_Y + 22, 0xFF404040, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_ENERGY_NOTE), GRID_X + 4, GRID_Y + 22, 0xFF404040, false);
             return;
         }
         // 标签页内容：仅当前页显示对应控件下方的说明 / 列表
         if (page == Page.TAG) {
             if (chType == ChannelType.ITEM) drawTagChips(gg);
-            else gg.drawString(this.font, Component.literal("流体频道按物品模板过滤，无标签"), GRID_X, ROW_CHIPS + 2, 0xFF6a6a6a, false);
+            else gg.drawString(this.font, Lang.t(Lang.UI_TAG_FLUID_HINT), GRID_X, ROW_CHIPS + 2, 0xFF6a6a6a, false);
         } else if (page == Page.NBT) {
             if (chType == ChannelType.ITEM)
-                gg.drawString(this.font, Component.literal("上方开关控制是否比较物品 NBT，下方填 NBT 正则"), GRID_X, ROW_CHIPS + 2, 0xFF6a6a6a, false);
-            else gg.drawString(this.font, Component.literal("流体频道不使用 NBT 过滤"), GRID_X, ROW_CHIPS + 2, 0xFF6a6a6a, false);
+                gg.drawString(this.font, Lang.t(Lang.UI_NBT_ITEM_HINT), GRID_X, ROW_CHIPS + 2, 0xFF6a6a6a, false);
+            else gg.drawString(this.font, Lang.t(Lang.UI_NBT_FLUID_HINT), GRID_X, ROW_CHIPS + 2, 0xFF6a6a6a, false);
         } else { // 物品页
-            String hint = chType == ChannelType.ITEM ? "将物品拖入上方网格设定模板 · 点击格子删除" : "将流体桶拖入上方网格 · 点击格子删除";
-            gg.drawString(this.font, Component.literal(hint), GRID_X, ROW_CHIPS + 2, 0xFF6a6a6a, false);
+            Component hint = chType == ChannelType.ITEM ? Lang.t(Lang.UI_ITEM_HINT) : Lang.t(Lang.UI_FLUID_HINT);
+            gg.drawString(this.font, hint, GRID_X, ROW_CHIPS + 2, 0xFF6a6a6a, false);
         }
     }
 
@@ -351,7 +356,7 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
             gg.drawString(this.font, Component.literal("▾"), cx + 2, cy + 1, 0xFF404040, false);
         }
         if (itemTags.isEmpty())
-            gg.drawString(this.font, Component.literal("（无标签，点击标签可移除）"), GRID_X, ROW_CHIPS + 2, 0xFF6a6a6a, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_TAG_EMPTY), GRID_X, ROW_CHIPS + 2, 0xFF6a6a6a, false);
     }
 
     @Override

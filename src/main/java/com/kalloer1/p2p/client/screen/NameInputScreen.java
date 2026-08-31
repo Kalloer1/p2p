@@ -1,5 +1,6 @@
 package com.kalloer1.p2p.client.screen;
 
+import com.kalloer1.p2p.Lang;
 import com.kalloer1.p2p.network.ChannelActionC2SPacket;
 import com.kalloer1.p2p.network.ModMessages;
 import com.mojang.blaze3d.platform.InputConstants;
@@ -19,7 +20,7 @@ public class NameInputScreen extends Screen {
     private static final int STONE = 0xFFC6C6C6, HI = 0xFFFFFFFF, SH = 0xFF555555, TAB = 0xFF2f2f2f;
     private static final int INK = 0xFF2b2b2b, TITLE = 0xFFe6e6e6;
     private final Screen parent;
-    private final String title;
+    private final Component title;
     private final String initial;
     private final int channelId;
     private final int action;
@@ -28,8 +29,8 @@ public class NameInputScreen extends Screen {
     private EditBox box;
     private Button okBtn, cancelBtn;
 
-    public NameInputScreen(Screen parent, String title, String initial, int action, int channelId, String memberKey) {
-        super(Component.literal(title));
+    public NameInputScreen(Screen parent, Component title, String initial, int action, int channelId, String memberKey) {
+        super(title);
         this.parent = parent;
         this.title = title;
         this.initial = initial == null ? "" : initial;
@@ -42,7 +43,7 @@ public class NameInputScreen extends Screen {
     protected void init() {
         leftPos = (this.width - W) / 2;
         topPos = (this.height - H) / 2;
-        box = new EditBox(this.font, leftPos + 12, topPos + 44, W - 24, 16, Component.literal("输入"));
+        box = new EditBox(this.font, leftPos + 12, topPos + 44, W - 24, 16, Lang.t(Lang.UI_INPUT_HINT));
         if (action == 2) {
             box.setMaxLength(10);  // fits Integer.MIN_VALUE..Integer.MAX_VALUE
             box.setFilter(s -> s.matches("-?[0-9]*"));
@@ -52,8 +53,8 @@ public class NameInputScreen extends Screen {
         box.setValue(initial);
         box.setFocused(true);
         addRenderableWidget(box);
-        okBtn = addRenderableWidget(Button.builder(Component.literal("确定"), b -> confirm()).bounds(leftPos + W - 184, topPos + H - 26, 84, 20).build());
-        cancelBtn = addRenderableWidget(Button.builder(Component.literal("取消"), b -> minecraft.setScreen(parent)).bounds(leftPos + W - 92, topPos + H - 26, 84, 20).build());
+        okBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_OK), b -> confirm()).bounds(leftPos + W - 184, topPos + H - 26, 84, 20).build());
+        cancelBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_CANCEL), b -> minecraft.setScreen(parent)).bounds(leftPos + W - 92, topPos + H - 26, 84, 20).build());
     }
 
     @Override
@@ -73,7 +74,7 @@ public class NameInputScreen extends Screen {
         // header strip
         gg.fill(x, y, x + W, y + 17, TAB);
         gg.fill(x, y, x + W, y + 1, HI);
-        gg.drawString(this.font, Component.literal(title), x + 6, y + 5, TITLE, false);
+        gg.drawString(this.font, title, x + 6, y + 5, TITLE, false);
     }
 
     private void confirm() {

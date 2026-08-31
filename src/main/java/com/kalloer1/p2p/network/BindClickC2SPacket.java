@@ -1,5 +1,6 @@
 package com.kalloer1.p2p.network;
 
+import com.kalloer1.p2p.Lang;
 import com.kalloer1.p2p.P2P;
 import com.kalloer1.p2p.channel.Channel;
 import com.kalloer1.p2p.channel.ChannelManager;
@@ -62,18 +63,18 @@ public class BindClickC2SPacket {
             }
             int channelId = cm.getBoundChannel(player);
             if (channelId < 0) {
-                player.displayClientMessage(Component.literal("还没有设置当前绑定频道：在 P2P 界面选中频道后点『设为当前绑定频道』。")
+                player.displayClientMessage(Lang.t(Lang.MSG_NO_BOUND_CHANNEL)
                         .withStyle(ChatFormatting.YELLOW), true);
                 return;
             }
             Channel channel = cm.getChannel(channelId);
             if (channel == null) {
-                player.displayClientMessage(Component.literal("当前绑定频道 #" + channelId + " 已不存在。")
+                player.displayClientMessage(Lang.t(Lang.MSG_CHANNEL_GONE, channelId)
                         .withStyle(ChatFormatting.RED), true);
                 return;
             }
             if (!cm.canEditChannel(player, channel)) {
-                player.displayClientMessage(Component.literal("频道 #" + channelId + " 属于别人的网络，你没有改动权限。")
+                player.displayClientMessage(Lang.t(Lang.MSG_NO_PERM, channelId)
                         .withStyle(ChatFormatting.RED), true);
                 return;
             }

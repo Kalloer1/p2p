@@ -1,5 +1,6 @@
 package com.kalloer1.p2p.client;
 
+import com.kalloer1.p2p.Lang;
 import com.kalloer1.p2p.P2P;
 import com.kalloer1.p2p.channel.Channel;
 import com.kalloer1.p2p.channel.Member;
@@ -23,6 +24,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
@@ -152,17 +154,19 @@ public final class ClientForgeEvents {
         GuiGraphics gg = evt.getGuiGraphics();
         int w = mc.getWindow().getGuiScaledWidth();
         int ch = ClientBindState.getBoundChannel();
-        String text = "P2P 绑定模式" + (ch >= 0 ? " · 频道 #" + ch : " · 未选当前频道")
-                + "  |  右键=输入  左键=输出  Ctrl=连锁  (再按 B 退出)";
+        MutableComponent bindText = Component.empty()
+                .append(Lang.t(Lang.HUD_BIND))
+                .append(ch >= 0 ? Lang.t(Lang.HUD_BIND_CHANNEL, ch) : Lang.t(Lang.HUD_BIND_NO_CHANNEL))
+                .append(Lang.t(Lang.HUD_HINT));
         int pad = 6, fh = 10;
-        int boxW = mc.font.width(text) + pad * 2;
+        int boxW = mc.font.width(bindText) + pad * 2;
         int boxX = (w - boxW) / 2;
         // 上移到快捷栏之上（快捷栏占底部约 22px，状态条自身高 22px，留 2px 间距）
         int boxY = mc.getWindow().getGuiScaledHeight() - 46;
         gg.fill(boxX, boxY, boxX + boxW, boxY + fh + pad * 2, 0xCC2f2f2f);
         gg.fill(boxX, boxY, boxX + boxW, boxY + 1, 0xFFFFFFFF);
         gg.fill(boxX, boxY + fh + pad * 2 - 1, boxX + boxW, boxY + fh + pad * 2, 0xFF555555);
-        gg.drawString(mc.font, Component.literal(text).withStyle(ch >= 0 ? net.minecraft.ChatFormatting.GREEN : net.minecraft.ChatFormatting.YELLOW),
+        gg.drawString(mc.font, bindText.withStyle(ch >= 0 ? net.minecraft.ChatFormatting.GREEN : net.minecraft.ChatFormatting.YELLOW),
                 boxX + pad, boxY + pad, 0xFFFFFFFF, false);
     }
 

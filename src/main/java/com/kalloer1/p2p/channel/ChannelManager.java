@@ -1,5 +1,6 @@
 package com.kalloer1.p2p.channel;
 
+import com.kalloer1.p2p.Lang;
 import com.kalloer1.p2p.P2P;
 import com.kalloer1.p2p.network.ChannelSyncS2CPacket;
 import com.kalloer1.p2p.network.ModMessages;
@@ -236,11 +237,11 @@ public class ChannelManager extends SavedData {
                                 int channelId, Role role) {
         Channel channel = getChannel(channelId);
         if (channel == null) {
-            player.displayClientMessage(Component.literal("绑定的频道 #" + channelId + " 已不存在。").withStyle(ChatFormatting.RED), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_CHANNEL_GONE, channelId).withStyle(ChatFormatting.RED), true);
             return;
         }
         if (!canEditChannel(player, channel)) {
-            player.displayClientMessage(Component.literal("频道 #" + channelId + " 属于别人的网络，你没有改动权限。").withStyle(ChatFormatting.RED), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_NO_PERM, channelId).withStyle(ChatFormatting.RED), true);
             return;
         }
         ResourceLocation dim = level.dimension().location();
@@ -250,11 +251,11 @@ public class ChannelManager extends SavedData {
 
         boolean removed = channel.members.removeIf(m -> m.key().equals(key));
         if (removed) {
-            player.displayClientMessage(Component.literal("已移出频道 #" + channelId + " 的端点。").withStyle(ChatFormatting.YELLOW), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_ENDPOINT_REMOVED, channelId).withStyle(ChatFormatting.YELLOW), true);
         } else {
             channel.members.add(new Member(dim, pos, face, role, null, null));
-            String roleStr = role == Role.INPUT ? "抽取端 (IN)" : "注入端 (OUT)";
-            player.displayClientMessage(Component.literal("已设为频道 #" + channelId + " 的" + roleStr).withStyle(ChatFormatting.GREEN), true);
+            Component roleStr = role == Role.INPUT ? Lang.t(Lang.MSG_ROLE_IN) : Lang.t(Lang.MSG_ROLE_OUT);
+            player.displayClientMessage(Lang.t(Lang.MSG_ENDPOINT_ADDED, channelId, roleStr).withStyle(ChatFormatting.GREEN), true);
         }
         P2P.LOGGER.info("[p2p] toggleEndpoint result: channel={} members={} removed={}", channelId, channel.members.size(), removed);
         setDirty();
@@ -270,11 +271,11 @@ public class ChannelManager extends SavedData {
     public int bindChain(Level level, ServerPlayer player, BlockPos origin, Direction face, int channelId, Role role) {
         Channel channel = getChannel(channelId);
         if (channel == null) {
-            player.displayClientMessage(Component.literal("绑定的频道 #" + channelId + " 已不存在。").withStyle(ChatFormatting.RED), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_CHANNEL_GONE, channelId).withStyle(ChatFormatting.RED), true);
             return 0;
         }
         if (!canEditChannel(player, channel)) {
-            player.displayClientMessage(Component.literal("频道 #" + channelId + " 属于别人的网络，你没有改动权限。").withStyle(ChatFormatting.RED), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_NO_PERM, channelId).withStyle(ChatFormatting.RED), true);
             return 0;
         }
         Block target = level.getBlockState(origin).getBlock();
@@ -303,9 +304,9 @@ public class ChannelManager extends SavedData {
             }
         }
         if (added == 0)
-            player.displayClientMessage(Component.literal("附近没有发现可连锁的相同机器。").withStyle(ChatFormatting.YELLOW), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_CHAIN_NONE).withStyle(ChatFormatting.YELLOW), true);
         else
-            player.displayClientMessage(Component.literal("已连锁绑定 " + added + " 台相同机器到频道 #" + channelId).withStyle(ChatFormatting.GREEN), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_CHAIN_ADDED, added, channelId).withStyle(ChatFormatting.GREEN), true);
         P2P.LOGGER.info("[p2p] bindChain result: added={} target={} channel={}", added, target, channelId);
         setDirty();
         pushSync(player);
@@ -321,11 +322,11 @@ public class ChannelManager extends SavedData {
     public int unbindChain(Level level, ServerPlayer player, BlockPos origin, Direction face, int channelId, ResourceLocation dim) {
         Channel channel = getChannel(channelId);
         if (channel == null) {
-            player.displayClientMessage(Component.literal("绑定的频道 #" + channelId + " 已不存在。").withStyle(ChatFormatting.RED), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_CHANNEL_GONE, channelId).withStyle(ChatFormatting.RED), true);
             return 0;
         }
         if (!canEditChannel(player, channel)) {
-            player.displayClientMessage(Component.literal("频道 #" + channelId + " 属于别人的网络，你没有改动权限。").withStyle(ChatFormatting.RED), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_NO_PERM, channelId).withStyle(ChatFormatting.RED), true);
             return 0;
         }
         Block target = level.getBlockState(origin).getBlock();
@@ -344,9 +345,9 @@ public class ChannelManager extends SavedData {
             }
         }
         if (removed == 0)
-            player.displayClientMessage(Component.literal("附近没有可连锁解绑的相同机器。").withStyle(ChatFormatting.YELLOW), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_UNCHAIN_NONE).withStyle(ChatFormatting.YELLOW), true);
         else
-            player.displayClientMessage(Component.literal("已连锁解绑 " + removed + " 台相同机器").withStyle(ChatFormatting.YELLOW), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_UNCHAIN_REMOVED, removed).withStyle(ChatFormatting.YELLOW), true);
         P2P.LOGGER.info("[p2p] unbindChain result: removed={} target={} channel={}", removed, target, channelId);
         if (removed > 0) setDirty();
         pushSync(player);
