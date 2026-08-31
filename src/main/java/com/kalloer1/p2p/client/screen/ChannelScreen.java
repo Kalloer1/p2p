@@ -26,6 +26,10 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -73,6 +77,7 @@ public class ChannelScreen extends Screen {
     private final List<Hit> leftRects = new ArrayList<>();
     private final List<MemberBtn> memberBtns = new ArrayList<>();
     private final List<PosHit> posHits = new ArrayList<>();
+    private final List<BlockHit> blockHits = new ArrayList<>();
     private final List<DimHit> dimHits = new ArrayList<>();
     private final List<FaceHit> faceHits = new ArrayList<>();
     private int lastDblIndex = -1;
@@ -226,6 +231,13 @@ public class ChannelScreen extends Screen {
         for (DimHit d : dimHits) {
             if (mx >= d.x && mx <= d.x + d.w && my >= d.y && my <= d.y + d.h) {
                 gg.renderTooltip(this.font, Component.literal("维度: " + d.dim), mx, my);
+                break;
+            }
+        }
+        // block icon tooltip: shows the block name at this endpoint's position
+        for (BlockHit b : blockHits) {
+            if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+                gg.renderTooltip(this.font, Component.literal("方块: " + b.block.getName().getString()), mx, my);
                 break;
             }
         }
@@ -406,6 +418,7 @@ public class ChannelScreen extends Screen {
         memberBtns.clear();
         posHits.clear();
         dimHits.clear();
+        blockHits.clear();
         if (c.members.isEmpty()) {
             gg.drawString(this.font, Component.literal("这个频道还没有端点"), rx + 10, mTop + 26, 0xFF2b2b2b, false);
             gg.drawString(this.font, Component.literal("按 B 进入绑定模式，空手右键=输入 / 左键=输出（Ctrl=连锁）"), rx + 10, mTop + 42, 0xFF5a5a5a, false);
@@ -417,9 +430,10 @@ public class ChannelScreen extends Screen {
 
         // fixed column positions (relative to rx). Coordinates are LEFT-aligned close to the dimension label so
         // every row starts at the same x; longer coordinates are ellipsised instead of pushing the other columns.
-        final int colDimX = 2, colDimW = 4;             // colour pill
-        final int colDimTextX = 8;                      // 2-char dimension label (tooltip = full id)
-        final int colPosX = 29, colPosW = 60;
+        final int colIconX = 1;                         // 16px 方块图标（坐标节点旁）
+        final int colDimX = 19, colDimW = 4;            // colour pill
+        final int colDimTextX = 25;                     // 2-char dimension label (tooltip = full id)
+        final int colPosX = 41, colPosW = 48;
         final int colFaceX = 92, colFaceW = 14;         // direction column, centered
         final int colRoleX = 108;                       // IN/OUT square + text
         final int colToggleX = 108, colToggleW = 16;    // IN/OUT swap button
@@ -436,6 +450,16 @@ public class ChannelScreen extends Screen {
             if (sel) gg.fill(rx + 1, ry, rx + rw - 1, ry + rowH, SEL);
             // subtle row separator
             gg.fill(rx + 2, ry + rowH - 1, rx + rw - 2, ry + rowH, 0xFF999999);
+
+            // 方块图标：坐标节点旁显示该位置方块，方便辨认（仅同维度 / 世界已加载时可查）
+            if (this.minecraft.level != null && this.minecraft.level.dimension().location().equals(m.dim)) {
+                BlockState st = this.minecraft.level.getBlockState(m.pos);
+                Block blk = st.getBlock();
+                if (blk != Blocks.AIR && blk.asItem() != Items.AIR) {
+                    gg.renderItem(new ItemStack(blk.asItem()), rx + colIconX, ry + 0);
+                    blockHits.add(new BlockHit(i, rx + colIconX, ry, 16, 16, blk));
+                }
+            }
 
             // dimension: colour pill + short label (hover shows the full dimension id)
             String dimId = m.dim.toString();
@@ -847,4 +871,5 @@ public class ChannelScreen extends Screen {
     private record PosHit(int index, int x, int y, int w, int h) {}
     private record DimHit(String dim, int x, int y, int w, int h) {}
     private record FaceHit(int index, int x, int y, int w, int h) {}
+    private record BlockHit(int index, int x, int y, int w, int h, Block block) {}
 }

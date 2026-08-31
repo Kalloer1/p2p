@@ -157,7 +157,8 @@ public final class ClientForgeEvents {
         int pad = 6, fh = 10;
         int boxW = mc.font.width(text) + pad * 2;
         int boxX = (w - boxW) / 2;
-        int boxY = mc.getWindow().getGuiScaledHeight() - 24;
+        // 上移到快捷栏之上（快捷栏占底部约 22px，状态条自身高 22px，留 2px 间距）
+        int boxY = mc.getWindow().getGuiScaledHeight() - 46;
         gg.fill(boxX, boxY, boxX + boxW, boxY + fh + pad * 2, 0xCC2f2f2f);
         gg.fill(boxX, boxY, boxX + boxW, boxY + 1, 0xFFFFFFFF);
         gg.fill(boxX, boxY + fh + pad * 2 - 1, boxX + boxW, boxY + fh + pad * 2, 0xFF555555);
