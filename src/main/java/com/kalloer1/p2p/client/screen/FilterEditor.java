@@ -53,7 +53,7 @@ import java.util.List;
 public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMenu> {
 
     // vanilla shulker box GUI: 176x166 drawn area inside a 256x256 texture
-    private static final ResourceLocation BG = new ResourceLocation("minecraft", "textures/gui/container/shulker_box.png");
+    private static final ResourceLocation BG = new ResourceLocation("minecraft:textures/gui/container/shulker_box.png");
     private static final int TEX_W = 256, TEX_H = 256;
     private static final int VANILLA_H = 166;
     /** extra room inserted between the marker grid and the player inventory (mode buttons / tag / regex). */

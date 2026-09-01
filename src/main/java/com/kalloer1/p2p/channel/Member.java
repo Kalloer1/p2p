@@ -60,7 +60,7 @@ public class Member {
 
     public static Member deserializeNBT(CompoundTag tag) {
         ResourceLocation dim = ResourceLocation.tryParse(tag.getString("dim"));
-        if (dim == null) dim = new ResourceLocation("minecraft", "overworld");
+        if (dim == null) dim = new ResourceLocation("minecraft:overworld");
         BlockPos pos = BlockPos.of(tag.getLong("pos"));
         Direction face = Direction.byName(tag.getString("face"));
         Role role = Role.valueOf(tag.getString("role"));
