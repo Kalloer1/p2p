@@ -1,5 +1,6 @@
 package com.kalloer1.p2p.command;
 
+import com.kalloer1.p2p.Lang;
 import com.kalloer1.p2p.P2P;
 import com.kalloer1.p2p.channel.ChannelManager;
 import com.kalloer1.p2p.channel.Network;
@@ -75,14 +76,14 @@ public final class P2PCommands {
 
     private static int usage(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack src = ctx.getSource();
-        send(src, "§6[P2P]§r 网络共享指令：", null);
-        send(src, "§7/p2p invite <玩家>§r  邀请某玩家共享你的网络（对方需在线）", null);
-        send(src, "§7/p2p accept [玩家]§r  接受邀请（不填玩家则接受最早一个）", null);
-        send(src, "§7/p2p deny [玩家]§r    拒绝邀请", null);
-        send(src, "§7/p2p leave <玩家>§r   退出对方的网络（双向断开）", null);
-        send(src, "§7/p2p kick <玩家>§r    把某玩家踢出你的网络（双向断开，仅网络拥有者可用）", null);
-        send(src, "§7/p2p members§r        查看你可见的网络与成员", null);
-        send(src, "§7/p2p invites§r        查看待处理的邀请", null);
+        send(src, Lang.t(Lang.CMD_USAGE_HEADER), null);
+        send(src, Lang.t(Lang.CMD_USAGE_INVITE), null);
+        send(src, Lang.t(Lang.CMD_USAGE_ACCEPT), null);
+        send(src, Lang.t(Lang.CMD_USAGE_DENY), null);
+        send(src, Lang.t(Lang.CMD_USAGE_LEAVE), null);
+        send(src, Lang.t(Lang.CMD_USAGE_KICK), null);
+        send(src, Lang.t(Lang.CMD_USAGE_MEMBERS), null);
+        send(src, Lang.t(Lang.CMD_USAGE_INVITES), null);
         return 1;
     }
 
@@ -90,7 +91,7 @@ public final class P2PCommands {
         ServerPlayer me = ctx.getSource().getPlayerOrException();
         ServerPlayer target = EntityArgument.getPlayer(ctx, "player");
         if (target == me) {
-            send(me, "不能邀请自己加入网络。", ChatFormatting.RED);
+            send(me, Lang.t(Lang.CMD_INVITE_SELF), ChatFormatting.RED);
             return 0;
         }
         ChannelManager cm = ChannelManager.INSTANCE;
@@ -98,23 +99,25 @@ public final class P2PCommands {
         String targetUuid = target.getStringUUID();
         String targetName = target.getName().getString();
         if (mine.members.contains(targetUuid)) {
-            send(me, targetName + " 已经在你的网络中了。", ChatFormatting.YELLOW);
+            send(me, Lang.t(Lang.CMD_INVITE_ALREADY, targetName), ChatFormatting.YELLOW);
             return 0;
         }
         if (mine.invited.contains(targetUuid)) {
-            send(me, "已向 " + targetName + " 发过邀请，正在等对方接受。", ChatFormatting.YELLOW);
+            send(me, Lang.t(Lang.CMD_INVITE_PENDING, targetName), ChatFormatting.YELLOW);
             return 0;
         }
         mine.invited.add(targetUuid);
         cm.setDirty();
-        send(me, "已邀请 " + targetName + " 加入网络「" + mine.name + "」，等待对方接受。", ChatFormatting.GREEN);
+        send(me, Lang.t(Lang.CMD_INVITE_SENT, targetName, mine.name), ChatFormatting.GREEN);
         // 对方收到可点击的 接受 / 拒绝
+        MutableComponent acceptLabel = Component.literal("§a[").append(Lang.t(Lang.CMD_ACCEPT_LABEL)).append("]§r");
+        MutableComponent denyLabel = Component.literal("§c[").append(Lang.t(Lang.CMD_DENY_LABEL)).append("]§r");
         MutableComponent notice = Component.literal("§6[P2P]§r ")
-                .append(Component.literal(me.getName().getString() + " 邀请你共享网络「" + mine.name + "」  ")
-                        .withStyle(ChatFormatting.YELLOW))
-                .append(clickable("§a[接受]§r", "/p2p accept " + me.getName().getString(), "接受邀请，双方互相可见并可修改对方网络"))
+                .append(Lang.t(Lang.CMD_INVITE_NOTICE, me.getName().getString(), mine.name).withStyle(ChatFormatting.YELLOW))
                 .append(Component.literal("  "))
-                .append(clickable("§c[拒绝]§r", "/p2p deny " + me.getName().getString(), "拒绝邀请"));
+                .append(clickable(acceptLabel, "/p2p accept " + me.getName().getString(), Lang.t(Lang.CMD_ACCEPT_HOVER)))
+                .append(Component.literal("  "))
+                .append(clickable(denyLabel, "/p2p deny " + me.getName().getString(), Lang.t(Lang.CMD_DENY_HOVER)));
         target.displayClientMessage(notice, false);
         return 1;
     }
@@ -133,7 +136,7 @@ public final class P2PCommands {
         } else {
             List<Network> pending = cm.pendingInvitesFor(meUuid);
             if (pending.isEmpty()) {
-                send(me, "你目前没有待处理的网络共享邀请。", ChatFormatting.YELLOW);
+                send(me, Lang.t(Lang.CMD_ACCEPT_NO_PENDING), ChatFormatting.YELLOW);
                 return 0;
             }
             Network first = pending.get(0);
@@ -141,23 +144,23 @@ public final class P2PCommands {
             inviterName = nameOf(server, first.owner);
         }
         if (meUuid.equals(inviterUuid)) {
-            send(me, "不能接受自己的邀请。", ChatFormatting.RED);
+            send(me, Lang.t(Lang.CMD_ACCEPT_SELF), ChatFormatting.RED);
             return 0;
         }
 
         Network theirs = cm.findByOwner(inviterUuid);
         if (theirs == null || !theirs.invited.contains(meUuid)) {
-            send(me, "没有来自 " + inviterName + " 的待接受邀请。", ChatFormatting.RED);
+            send(me, Lang.t(Lang.CMD_ACCEPT_NONE_FROM, inviterName), ChatFormatting.RED);
             return 0;
         }
         // 双向加入：对方网络加我，我的网络加对方
         cm.establishMutualShare(inviterUuid, inviterName, meUuid, me.getName().getString());
         Network mine = cm.findByOwner(meUuid);
-        send(me, "已加入「" + theirs.name + "」，" + inviterName + " 也加入了你的网络，现在双方可以互相查看和修改。", ChatFormatting.GREEN);
+        send(me, Lang.t(Lang.CMD_ACCEPT_JOINED, theirs.name, inviterName), ChatFormatting.GREEN);
 
         ServerPlayer inviter = server.getPlayerList().getPlayer(UUID.fromString(inviterUuid));
         if (inviter != null) {
-            send(inviter, me.getName().getString() + " 接受了你的邀请：现在双方可以互相查看和修改彼此的网络。", ChatFormatting.GREEN);
+            send(inviter, Lang.t(Lang.CMD_ACCEPT_ACCEPTED, me.getName().getString()), ChatFormatting.GREEN);
         }
         cm.pushSyncTo(server, meUuid);
         cm.pushSyncTo(server, inviterUuid);
@@ -179,7 +182,7 @@ public final class P2PCommands {
         } else {
             List<Network> pending = cm.pendingInvitesFor(meUuid);
             if (pending.isEmpty()) {
-                send(me, "你目前没有待处理的网络共享邀请。", ChatFormatting.YELLOW);
+                send(me, Lang.t(Lang.CMD_ACCEPT_NO_PENDING), ChatFormatting.YELLOW);
                 return 0;
             }
             inviterUuid = pending.get(0).owner;
@@ -187,13 +190,13 @@ public final class P2PCommands {
         }
         Network theirs = cm.findByOwner(inviterUuid);
         if (theirs == null || !theirs.invited.remove(meUuid)) {
-            send(me, "没有来自 " + inviterName + " 的待处理邀请。", ChatFormatting.RED);
+            send(me, Lang.t(Lang.CMD_DENY_NONE_FROM, inviterName), ChatFormatting.RED);
             return 0;
         }
         cm.setDirty();
-        send(me, "已拒绝 " + inviterName + " 的网络共享邀请。", ChatFormatting.YELLOW);
+        send(me, Lang.t(Lang.CMD_DENY_DONE, inviterName), ChatFormatting.YELLOW);
         ServerPlayer inviter = server.getPlayerList().getPlayer(UUID.fromString(inviterUuid));
-        if (inviter != null) send(inviter, me.getName().getString() + " 拒绝了你的网络共享邀请。", ChatFormatting.YELLOW);
+        if (inviter != null) send(inviter, Lang.t(Lang.CMD_DENY_DENIED, me.getName().getString()), ChatFormatting.YELLOW);
         return 1;
     }
 
@@ -205,7 +208,7 @@ public final class P2PCommands {
         ServerPlayer me = ctx.getSource().getPlayerOrException();
         MinecraftServer server = ctx.getSource().getServer();
         if (other == null) {
-            send(me, "用法：/p2p " + (self ? "leave" : "kick") + " <玩家>", ChatFormatting.RED);
+            send(me, Lang.t(Lang.CMD_UNLINK_USAGE, self ? "leave" : "kick"), ChatFormatting.RED);
             return 0;
         }
         ChannelManager cm = ChannelManager.INSTANCE;
@@ -213,7 +216,7 @@ public final class P2PCommands {
         String otherUuid = other.getId().toString();
         String otherName = other.getName();
         if (meUuid.equals(otherUuid)) {
-            send(me, self ? "不能退出自己的网络。" : "不能把自己踢出网络。", ChatFormatting.RED);
+            send(me, Lang.t(self ? Lang.CMD_UNLINK_SELF_LEAVE : Lang.CMD_UNLINK_SELF_KICK), ChatFormatting.RED);
             return 0;
         }
 
@@ -232,20 +235,14 @@ public final class P2PCommands {
             }
         }
         if (removed == 0) {
-            send(me, self
-                    ? "你还没有加入 " + otherName + " 的网络。"
-                    : otherName + " 不在你管理的网络里（只有网络拥有者可以踢人）。", ChatFormatting.RED);
+            send(me, Lang.t(self ? Lang.CMD_UNLINK_NOT_JOINED : Lang.CMD_UNLINK_NOT_MANAGED, otherName), ChatFormatting.RED);
             return 0;
         }
         cm.setDirty();
-        send(me, self
-                ? "已退出 " + otherName + " 的网络，对方也不再共享你的网络。"
-                : "已将 " + otherName + " 踢出你的网络，双方共享关系已解除。", ChatFormatting.GREEN);
+        send(me, Lang.t(self ? Lang.CMD_UNLINK_LEFT : Lang.CMD_UNLINK_KICKED, otherName), ChatFormatting.GREEN);
         ServerPlayer target = server.getPlayerList().getPlayer(UUID.fromString(otherUuid));
         if (target != null) {
-            send(target, self
-                    ? me.getName().getString() + " 退出了你的网络，双方共享关系已解除。"
-                    : "你已被 " + me.getName().getString() + " 移出网络，双方共享关系已解除。", ChatFormatting.YELLOW);
+            send(target, Lang.t(self ? Lang.CMD_UNLINK_LEFT_NOTIFY : Lang.CMD_UNLINK_KICKED_NOTIFY, me.getName().getString()), ChatFormatting.YELLOW);
         }
         cm.pushSyncTo(server, meUuid);
         cm.pushSyncTo(server, otherUuid);
@@ -263,18 +260,18 @@ public final class P2PCommands {
             if (!n.isVisibleTo(meUuid)) continue;
             any = true;
             boolean mine = n.canManage(meUuid);
-            send(me, "§6# " + n.name + "§r " + (mine ? "§a（你的网络）" : "§b（他人共享）"), null);
+            send(me, Lang.t(mine ? Lang.CMD_MEMBERS_HEADER_MINE : Lang.CMD_MEMBERS_HEADER_SHARED, n.name), null);
             for (String uuid : n.members) {
-                String tag = uuid.equals(n.owner) ? "§7[拥有者]§r" : "§7[成员]§r";
-                send(me, "  " + tag + " " + nameOf(server, uuid), null);
+                String tagKey = uuid.equals(n.owner) ? Lang.CMD_MEMBERS_TAG_OWNER : Lang.CMD_MEMBERS_TAG_MEMBER;
+                send(me, Component.literal("  ").append(Lang.t(tagKey)).append(" ").append(Component.literal(nameOf(server, uuid))), null);
             }
             if (!n.invited.isEmpty()) {
-                StringBuilder sb = new StringBuilder("  §8待接受:§r");
-                for (String uuid : n.invited) sb.append(" ").append(nameOf(server, uuid));
-                send(me, sb.toString(), null);
+                MutableComponent sb = Lang.t(Lang.CMD_MEMBERS_PENDING_PREFIX);
+                for (String uuid : n.invited) sb.append(" ").append(Component.literal(nameOf(server, uuid)));
+                send(me, sb, null);
             }
         }
-        if (!any) send(me, "你还没有网络。创建一个频道或组后会自动生成。", ChatFormatting.GRAY);
+        if (!any) send(me, Lang.t(Lang.CMD_MEMBERS_NONE), ChatFormatting.GRAY);
         return 1;
     }
 
@@ -286,15 +283,18 @@ public final class P2PCommands {
 
         List<Network> received = cm.pendingInvitesFor(meUuid);
         if (received.isEmpty()) {
-            send(me, "没有待处理的邀请。", ChatFormatting.GRAY);
+            send(me, Lang.t(Lang.CMD_INVITES_NONE_RECEIVED), ChatFormatting.GRAY);
         } else {
+            MutableComponent acceptLabel = Component.literal("§a[").append(Lang.t(Lang.CMD_ACCEPT_LABEL)).append("]§r");
+            MutableComponent denyLabel = Component.literal("§c[").append(Lang.t(Lang.CMD_DENY_LABEL)).append("]§r");
             for (Network n : received) {
                 String ownerName = nameOf(server, n.owner);
                 MutableComponent line = Component.literal("§6[P2P]§r ")
-                        .append(Component.literal(ownerName + " 邀请你共享网络「" + n.name + "」  ").withStyle(ChatFormatting.YELLOW))
-                        .append(clickable("§a[接受]§r", "/p2p accept " + ownerName, "接受邀请"))
+                        .append(Lang.t(Lang.CMD_INVITES_LINE, ownerName, n.name).withStyle(ChatFormatting.YELLOW))
                         .append(Component.literal("  "))
-                        .append(clickable("§c[拒绝]§r", "/p2p deny " + ownerName, "拒绝邀请"));
+                        .append(clickable(acceptLabel, "/p2p accept " + ownerName, Lang.t(Lang.CMD_ACCEPT_HOVER)))
+                        .append(Component.literal("  "))
+                        .append(clickable(denyLabel, "/p2p deny " + ownerName, Lang.t(Lang.CMD_DENY_HOVER)));
                 me.displayClientMessage(line, false);
             }
         }
@@ -302,11 +302,11 @@ public final class P2PCommands {
         for (Network n : cm.getAllNetworks()) {
             if (!n.canManage(meUuid) || n.invited.isEmpty()) continue;
             sentAny = true;
-            StringBuilder sb = new StringBuilder("§8已发出:§r");
-            for (String uuid : n.invited) sb.append(" ").append(nameOf(server, uuid));
-            send(me, sb.toString(), null);
+            MutableComponent sb = Lang.t(Lang.CMD_INVITES_SENT_PREFIX);
+            for (String uuid : n.invited) sb.append(" ").append(Component.literal(nameOf(server, uuid)));
+            send(me, sb, null);
         }
-        if (!sentAny && received.isEmpty()) send(me, "用 §7/p2p invite <玩家>§r 邀请别人共享网络。", ChatFormatting.GRAY);
+        if (!sentAny && received.isEmpty()) send(me, Lang.t(Lang.CMD_INVITES_HINT), ChatFormatting.GRAY);
         return 1;
     }
 
@@ -317,20 +317,20 @@ public final class P2PCommands {
         return profiles.isEmpty() ? null : profiles.iterator().next();
     }
 
-    private static MutableComponent clickable(String text, String command, String hover) {
-        return Component.literal(text)
-                .withStyle(style -> style
-                        .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, command))
-                        .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Component.literal(hover))));
+    private static MutableComponent clickable(Component label, String command, Component hover) {
+        return label.copy().withStyle(style -> style
+                .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, command))
+                .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, hover)));
     }
 
-    private static void send(CommandSourceStack src, String text, ChatFormatting color) {
-        ChatFormatting fmt = color == null ? ChatFormatting.GRAY : color;
-        src.sendSuccess(() -> Component.literal(text).withStyle(fmt), false);
+    private static void send(CommandSourceStack src, MutableComponent text, ChatFormatting color) {
+        MutableComponent out = color != null ? text.withStyle(color) : text;
+        src.sendSuccess(() -> out, false);
     }
 
-    private static void send(ServerPlayer player, String text, ChatFormatting color) {
-        player.displayClientMessage(Component.literal(text).withStyle(color == null ? ChatFormatting.GRAY : color), false);
+    private static void send(ServerPlayer player, MutableComponent text, ChatFormatting color) {
+        if (color != null) text = text.withStyle(color);
+        player.displayClientMessage(text, false);
     }
 
     /** UUID -> 玩家名：先查在线玩家，再查服务器档案缓存；都查不到就退回 UUID 前 8 位。 */

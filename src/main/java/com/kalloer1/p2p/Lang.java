@@ -170,4 +170,57 @@ public final class Lang {
     public static final String MSG_BIND_NOT_ACCESSIBLE = "p2p.msg.bind_not_accessible";
     public static final String MSG_BIND_CLEARED = "p2p.msg.bind_cleared";
     public static final String MSG_BIND_SET = "p2p.msg.bind_set";
+
+    // ---- command (/p2p network-sharing) ----
+    public static final String CMD_USAGE_HEADER = "p2p.cmd.usage.header";
+    public static final String CMD_USAGE_INVITE = "p2p.cmd.usage.invite";
+    public static final String CMD_USAGE_ACCEPT = "p2p.cmd.usage.accept";
+    public static final String CMD_USAGE_DENY = "p2p.cmd.usage.deny";
+    public static final String CMD_USAGE_LEAVE = "p2p.cmd.usage.leave";
+    public static final String CMD_USAGE_KICK = "p2p.cmd.usage.kick";
+    public static final String CMD_USAGE_MEMBERS = "p2p.cmd.usage.members";
+    public static final String CMD_USAGE_INVITES = "p2p.cmd.usage.invites";
+
+    public static final String CMD_INVITE_SELF = "p2p.cmd.invite.self";
+    public static final String CMD_INVITE_ALREADY = "p2p.cmd.invite.already";
+    public static final String CMD_INVITE_PENDING = "p2p.cmd.invite.pending";
+    public static final String CMD_INVITE_SENT = "p2p.cmd.invite.sent";
+    public static final String CMD_INVITE_NOTICE = "p2p.cmd.invite.notice";
+
+    public static final String CMD_ACCEPT_LABEL = "p2p.cmd.accept.label";
+    public static final String CMD_DENY_LABEL = "p2p.cmd.deny.label";
+    public static final String CMD_ACCEPT_HOVER = "p2p.cmd.accept.hover";
+    public static final String CMD_DENY_HOVER = "p2p.cmd.deny.hover";
+
+    public static final String CMD_ACCEPT_NO_PENDING = "p2p.cmd.accept.no_pending";
+    public static final String CMD_ACCEPT_SELF = "p2p.cmd.accept.self";
+    public static final String CMD_ACCEPT_NONE_FROM = "p2p.cmd.accept.none_from";
+    public static final String CMD_ACCEPT_JOINED = "p2p.cmd.accept.joined";
+    public static final String CMD_ACCEPT_ACCEPTED = "p2p.cmd.accept.accepted";
+
+    public static final String CMD_DENY_NONE_FROM = "p2p.cmd.deny.none_from";
+    public static final String CMD_DENY_DONE = "p2p.cmd.deny.done";
+    public static final String CMD_DENY_DENIED = "p2p.cmd.deny.denied";
+
+    public static final String CMD_UNLINK_USAGE = "p2p.cmd.unlink.usage";
+    public static final String CMD_UNLINK_SELF_LEAVE = "p2p.cmd.unlink.self_leave";
+    public static final String CMD_UNLINK_SELF_KICK = "p2p.cmd.unlink.self_kick";
+    public static final String CMD_UNLINK_NOT_JOINED = "p2p.cmd.unlink.not_joined";
+    public static final String CMD_UNLINK_NOT_MANAGED = "p2p.cmd.unlink.not_managed";
+    public static final String CMD_UNLINK_LEFT = "p2p.cmd.unlink.left";
+    public static final String CMD_UNLINK_KICKED = "p2p.cmd.unlink.kicked";
+    public static final String CMD_UNLINK_LEFT_NOTIFY = "p2p.cmd.unlink.left_notify";
+    public static final String CMD_UNLINK_KICKED_NOTIFY = "p2p.cmd.unlink.kicked_notify";
+
+    public static final String CMD_MEMBERS_HEADER_MINE = "p2p.cmd.members.header_mine";
+    public static final String CMD_MEMBERS_HEADER_SHARED = "p2p.cmd.members.header_shared";
+    public static final String CMD_MEMBERS_TAG_OWNER = "p2p.cmd.members.tag_owner";
+    public static final String CMD_MEMBERS_TAG_MEMBER = "p2p.cmd.members.tag_member";
+    public static final String CMD_MEMBERS_PENDING_PREFIX = "p2p.cmd.members.pending_prefix";
+    public static final String CMD_MEMBERS_NONE = "p2p.cmd.members.none";
+
+    public static final String CMD_INVITES_NONE_RECEIVED = "p2p.cmd.invites.none_received";
+    public static final String CMD_INVITES_LINE = "p2p.cmd.invites.line";
+    public static final String CMD_INVITES_SENT_PREFIX = "p2p.cmd.invites.sent_prefix";
+    public static final String CMD_INVITES_HINT = "p2p.cmd.invites.hint";
 }
