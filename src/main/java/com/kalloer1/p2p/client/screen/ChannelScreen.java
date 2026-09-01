@@ -309,9 +309,11 @@ public class ChannelScreen extends Screen {
                 if (r.child) gg.fill(lx + 2, ry + 2, lx + 4, ry + rowH - 2, 0xFF9a9a9a);  // tree guide line
                 int ind = r.child ? 26 : 8;
                 int rowInk = sel ? 0xFFFFFFFF : INK_DIM;
-                gg.drawString(this.font, Component.literal("#" + r.id), lx + ind, ry + 4, rowInk, false);
-                gg.drawString(this.font, Component.literal(trim(r.label, lw - 56 - (r.child ? 18 : 0))), lx + ind + 26, ry + 4, rowInk, false);
-                typeTag(gg, lx + lw - 18, ry + 2, r.type);
+                // show the channel name only (no "#id" prefix); trim so the type tag fits inside the list border
+                int nameMax = lw - 42 - (r.child ? 18 : 0);
+                gg.drawString(this.font, Component.literal(trim(r.label, nameMax)), lx + ind, ry + 4, rowInk, false);
+                // medium tag moved left (28px wide) so its right edge stays inside the list bevel
+                typeTag(gg, lx + lw - 32, ry + 2, r.type);
                 leftRects.add(new Hit(lx + 1, ry, lw - 2, rowH, 1, r.id));
                 gg.fill(lx + 1, ry + rowH - 1, lx + lw - 1, ry + rowH, 0xFF9a9a9a);   // row separator
             }

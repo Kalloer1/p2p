@@ -30,10 +30,14 @@ public class ChannelCreateScreen extends Screen {
     protected void init() {
         leftPos = (this.width - W) / 2;
         topPos = (this.height - H) / 2;
-        int rx = leftPos + 12;
-        itemBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_TYPE_ITEM), b -> create("ITEM")).bounds(rx, topPos + 48, 112, 44).build());
-        fluidBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_TYPE_FLUID), b -> create("FLUID")).bounds(rx + 124, topPos + 48, 112, 44).build());
-        energyBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_TYPE_ENERGY), b -> create("ENERGY")).bounds(rx + 248, topPos + 48, 112, 44).build());
+        // three normal-sized type buttons in a row (104×22, not the oversized 112×44)
+        int btnW = 104, btnH = 22, gap = 14;
+        int total = btnW * 3 + gap * 2;
+        int rx = leftPos + (W - total) / 2;
+        int by = topPos + 54;
+        itemBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_TYPE_ITEM), b -> create("ITEM")).bounds(rx, by, btnW, btnH).build());
+        fluidBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_TYPE_FLUID), b -> create("FLUID")).bounds(rx + btnW + gap, by, btnW, btnH).build());
+        energyBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_TYPE_ENERGY), b -> create("ENERGY")).bounds(rx + 2 * (btnW + gap), by, btnW, btnH).build());
         cancelBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_CANCEL), b -> minecraft.setScreen(parent)).bounds(leftPos + W - 96, topPos + H - 26, 88, 20).build());
     }
 

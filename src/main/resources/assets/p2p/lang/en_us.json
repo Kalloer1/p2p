@@ -90,6 +90,8 @@
   "p2p.ui.item_hint": "Drag items into the grid above to set templates · click a slot to remove",
   "p2p.ui.fluid_hint": "Drag a fluid bucket into the grid above · click a slot to remove",
   "p2p.ui.tag_empty": "(no tags; click a tag to remove)",
+  "p2p.ui.filter_type_only": "This medium type does not support tag / NBT filtering",
+  "p2p.ui.filter_type_only2": "Only ITEM channels have the Tag and NBT pages",
 
   "p2p.ui.create.header": "New Channel · Choose Type",
 

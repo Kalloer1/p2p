@@ -113,6 +113,8 @@ public final class Lang {
     public static final String UI_ITEM_HINT = "p2p.ui.item_hint";
     public static final String UI_FLUID_HINT = "p2p.ui.fluid_hint";
     public static final String UI_TAG_EMPTY = "p2p.ui.tag_empty";
+    public static final String UI_FILTER_TYPE_ONLY = "p2p.ui.filter_type_only";
+    public static final String UI_FILTER_TYPE_ONLY2 = "p2p.ui.filter_type_only2";
 
     // ---- ChannelCreateScreen ----
     public static final String UI_CREATE_HEADER = "p2p.ui.create.header";

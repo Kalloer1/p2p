@@ -42,9 +42,16 @@ import java.util.List;
  * This is a REAL vanilla container screen ({@link AbstractContainerScreen}) drawn with the vanilla shulker-box
  * GUI texture, exactly like the AE2 ME Interface config screen:
  *  - the 27 marker slots (9x3) and the player's inventory + hotbar are genuine {@link Slot}s, so vanilla draws
- *    the slot backgrounds, hover highlight and item tooltips for us (no hand-painted black squares);
+ *    the slot backgrounds, hover highlight and item tooltips for us (no hand-painted black squares) — but ONLY
+ *    while the ITEM page is active (JEI ghost-drag target). On the TAG / NBT pages every slot is deactivated and
+ *    the grid region is painted over, so the item grid never leaks into those pages.
  *  - because it is an AbstractContainerScreen, JEI recognises the GUI bounds and shows its item list / search
- *    on both sides, and JEI ghost-dragging into the marker grid works.
+ *    on both sides, and JEI ghost-dragging into the marker grid works (gated to the ITEM page by P2PJeiPlugin).
+ *
+ * The three pages are genuinely different:
+ *  - ITEM: the 9x3 marker grid + whitelist/blacklist + strict-NBT toggle.
+ *  - TAG:  a scrollable tag list (many rows) + whitelist/blacklist toggle for tags.
+ *  - NBT:  a large multi-line NBT/regex editor.
  *
  * The menu is client-only (no MenuType, never registered, never synced): every slot is read-only and
  * {@link #slotClicked} is fully overridden, so no container packet is ever sent to the server. The resulting
@@ -56,7 +63,7 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     private static final ResourceLocation BG = new ResourceLocation("minecraft:textures/gui/container/shulker_box.png");
     private static final int TEX_W = 256, TEX_H = 256;
     private static final int VANILLA_H = 166;
-    /** extra room inserted between the marker grid and the player inventory (mode buttons / tag / regex). */
+    /** extra room inserted between the marker grid and the player inventory (mode buttons / tag / nbt). */
     private static final int EXTRA = 84;
 
     static final int SLOT = 18, GRID_COLS = 9, GRID_ROWS = 3;
@@ -64,11 +71,15 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     /** vanilla player-inventory y (84) and hotbar y (142) shifted down by EXTRA. */
     static final int INV_Y = 84 + EXTRA, HOTBAR_Y = 142 + EXTRA;
 
+    private static final int STONE = 0xFFC6C6C6, HI = 0xFFFFFFFF, SH = 0xFF555555;
+
     // widget rows inside the inserted blank strip (relative to topPos)
-    private static final int ROW_TAB = 76;       // 标签页按钮行
-    private static final int ROW_CONTENT = 96;   // 各页主控件行（模式 / NBT 开关 / 标签框）
-    private static final int ROW_CHIPS = 116;    // 标签 chip 行
-    private static final int ROW_REGEX = 132;    // NBT 正则框
+    private static final int ROW_TAB = 76;        // 标签页按钮行
+    private static final int ROW_CHIPS = 116;     // ITEM 页提示行
+
+    // custom TAG list / NBT box geometry (relative to topPos)
+    private static final int TAG_X = 6, TAG_Y = 18, TAG_W = 164, TAG_LIST_H = 100, TAG_ROW_H = 13;
+    private static final int NBT_X = 6, NBT_Y = 18, NBT_W = 164, NBT_H = 98;
 
     private final Screen parent;
     private final int channelId;
@@ -83,9 +94,10 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     private final List<ResourceLocation> itemTags = new ArrayList<>();
     private String nbtRegex = "";
 
-    private EditBox tagBox, regexBox;
+    private EditBox tagBox;
+    private MultilineEdit nbtEdit;
     private final List<TagHit> tagHits = new ArrayList<>();
-    private int tagScroll = 0;   // scroll offset for the tag chip row
+    private int tagScroll = 0;   // scroll offset for the tag list (vertical)
 
     /** 过滤编辑器三个标签页：物品模板 / 标签 / NBT。点击标签按钮切换。 */
     private enum Page { ITEM, TAG, NBT }
@@ -180,30 +192,31 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         btnNbt  = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_TAB_NBT), b -> setPage(Page.NBT)).bounds(x + 116, y + ROW_TAB, 54, 16)));
 
         if (chType == ChannelType.ITEM) {
+            // whitelist/blacklist toggle (governs items AND tags) — shown on ITEM and TAG pages
             modeBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_MODE, modeLabel()), b -> {
                 mode = (mode == Filter.Mode.WHITELIST ? Filter.Mode.BLACKLIST : Filter.Mode.WHITELIST);
                 b.setMessage(Lang.t(Lang.UI_MODE, modeLabel()));
-            }).bounds(x + 8, y + ROW_CONTENT, 80, 16)));
+            }).bounds(x + 8, y + 140, 158, 16)));
 
+            // strict-NBT toggle — shown on ITEM and NBT pages
             nbtBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_NBT_SWITCH, nbtLabel()), b -> {
                 matchNBT = !matchNBT;
                 b.setMessage(Lang.t(Lang.UI_NBT_SWITCH, nbtLabel()));
-            }).bounds(x + 92, y + ROW_CONTENT, 76, 16)));
+            }).bounds(x + 92, y + 124, 76, 16)));
 
-            tagBox = new EditBox(this.font, x + 9, y + ROW_CONTENT, 106, 14, Lang.t(Lang.UI_TAG_HINT));
+            // TAG page: a tag text box + add button (only visible on the TAG page)
+            tagBox = new EditBox(this.font, x + 9, y + 124, 106, 14, Lang.t(Lang.UI_TAG_HINT));
             tagBox.setMaxLength(64);
             tagBox.setHint(Lang.t(Lang.UI_TAG_PLACEHOLDER));
             addRenderableWidget(tagBox);
             addTagBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_ADD_TAG), b -> addTagFromBox())
-                    .bounds(x + 118, y + ROW_CONTENT - 1, 50, 16)));
+                    .bounds(x + 118, y + 123, 50, 16)));
 
-            regexBox = new EditBox(this.font, x + 9, y + ROW_REGEX, 158, 14, Lang.t(Lang.UI_NBT_REGEX));
-            regexBox.setMaxLength(128);
-            regexBox.setHint(Lang.t(Lang.UI_NBT_REGEX_HINT));
-            regexBox.setValue(nbtRegex);
-            addRenderableWidget(regexBox);
+            // NBT page: a large multi-line editor (only drawn on the NBT page)
+            nbtEdit = new MultilineEdit(this.font, x + NBT_X, y + NBT_Y, NBT_W, NBT_H);
+            nbtEdit.setValue(nbtRegex);
         } else {
-            modeBtn = null; nbtBtn = null; tagBox = null; addTagBtn = null; regexBox = null;
+            modeBtn = null; nbtBtn = null; tagBox = null; addTagBtn = null; nbtEdit = null;
         }
         applyPage();
     }
@@ -215,14 +228,20 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     }
 
     private void applyPage() {
-        if (modeBtn != null) modeBtn.visible = (page == Page.ITEM);
-        if (nbtBtn != null) nbtBtn.visible = (page == Page.NBT);
+        boolean itemPage = (page == Page.ITEM);
+        if (modeBtn != null) modeBtn.visible = (page == Page.ITEM || page == Page.TAG);
+        if (nbtBtn != null) nbtBtn.visible = (page == Page.ITEM || page == Page.NBT);
         if (tagBox != null) tagBox.visible = (page == Page.TAG);
         if (addTagBtn != null) addTagBtn.visible = (page == Page.TAG);
-        if (regexBox != null) regexBox.visible = (page == Page.NBT);
+        // deactivate every slot off the ITEM page so the grid/inventory never renders or captures clicks
+        setSlotsActive(itemPage, itemPage);
         btnItem.setMessage(Component.literal(page == Page.ITEM ? "▶ " : "").append(Lang.t(Lang.UI_TAB_ITEM)));
         btnTag.setMessage(Component.literal(page == Page.TAG ? "▶ " : "").append(Lang.t(Lang.UI_TAB_TAG)));
         btnNbt.setMessage(Component.literal(page == Page.NBT ? "▶ " : "").append(Lang.t(Lang.UI_TAB_NBT)));
+    }
+
+    private void setSlotsActive(boolean markerActive, boolean invActive) {
+        for (Slot s : menu.slots) ((ReadOnlySlot) s).setActive(s.container == menu.ghost ? markerActive : invActive);
     }
 
     private Component modeLabel() { return mode == Filter.Mode.WHITELIST ? Lang.t(Lang.UI_MODE_WHITELIST) : Lang.t(Lang.UI_MODE_BLACKLIST); }
@@ -240,7 +259,7 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     }
 
     private void finish() {
-        if (regexBox != null) nbtRegex = regexBox.getValue().trim();
+        if (nbtEdit != null) nbtRegex = nbtEdit.getValue().trim();
         Filter f;
         if (chType == ChannelType.ENERGY) f = Filter.energyPass();
         else if (chType == ChannelType.ITEM) f = Filter.itemFilter(mode, matchNBT, itemTpl, itemTags, nbtRegex);
@@ -257,8 +276,17 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         // 1.20.1: Screen.render() does NOT dim the background for us — do it here, where it is guaranteed to run.
         this.renderBackground(gg);
         int x = leftPos, y = topPos;
-        // top part: title bar + the 3x9 marker rows (vanilla texture y 0..76)
-        gg.blit(BG, x, y, 0, 0, imageWidth, 76, TEX_W, TEX_H);
+        if (page == Page.ITEM) {
+            // top part: title bar + the 3x9 marker rows (vanilla texture y 0..76)
+            gg.blit(BG, x, y, 0, 0, imageWidth, 76, TEX_W, TEX_H);
+        } else {
+            // non-ITEM page: paint a plain panel over the grid region (no baked slot squares)
+            gg.fill(x, y, x + imageWidth, y + 76, STONE);
+            gg.fill(x, y, x + imageWidth, y + 1, HI);
+            gg.fill(x, y, x + 1, y + 76, HI);
+            gg.fill(x, y + 75, x + imageWidth, y + 76, SH);
+            gg.fill(x + imageWidth - 1, y, x + imageWidth, y + 76, SH);
+        }
         // inserted blank strip: tile the empty band of the vanilla texture (y 73..81)
         int filled = 0;
         while (filled < EXTRA) {
@@ -273,16 +301,16 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     @Override
     public void render(GuiGraphics gg, int mx, int my, float pt) {
         super.render(gg, mx, my, pt);
-        // fluid markers without a bucket item: tint the slot so the entry is still visible
-        if (chType == ChannelType.FLUID) {
-            for (int i = 0; i < fluidTpl.size() && i < GRID_COLS * GRID_ROWS; i++) {
-                if (!FluidUtil.getFilledBucket(fluidTpl.get(i)).isEmpty()) continue;
-                int cx = leftPos + GRID_X + (i % GRID_COLS) * SLOT;
-                int cy = topPos + GRID_Y + (i / GRID_COLS) * SLOT;
-                gg.fill(cx + 1, cy + 1, cx + SLOT - 3, cy + SLOT - 3, fluidTint(fluidTpl.get(i)));
-            }
+        if (page != Page.ITEM) {
+            // cover the (now inactive) marker grid region and the inventory region so no slot boxes leak through
+            gg.fill(leftPos, topPos, leftPos + imageWidth, topPos + 76, STONE);
+            gg.fill(leftPos, topPos + 160, leftPos + imageWidth, topPos + imageHeight, STONE);
+            // redraw the title (it sits in the top band we just covered)
+            gg.drawString(this.font, this.title, leftPos + titleLabelX, topPos + titleLabelY, 0xFF404040, false);
+            if (page == Page.TAG) drawTagPage(gg);
+            else drawNbtPage(gg);
         }
-        this.renderTooltip(gg, mx, my);
+        // tooltips for the strip widgets are drawn by super.render(); nothing custom to add here
     }
 
     @Override
@@ -293,81 +321,142 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
             gg.drawString(this.font, Lang.t(Lang.UI_ENERGY_NOTE), GRID_X + 4, GRID_Y + 22, 0xFF404040, false);
             return;
         }
-        // 标签页内容：仅当前页显示对应控件下方的说明 / 列表
-        if (page == Page.TAG) {
-            if (chType == ChannelType.ITEM) drawTagChips(gg);
-            else gg.drawString(this.font, Lang.t(Lang.UI_TAG_FLUID_HINT), GRID_X, ROW_CHIPS + 2, 0xFF6a6a6a, false);
-        } else if (page == Page.NBT) {
-            if (chType == ChannelType.ITEM)
-                gg.drawString(this.font, Lang.t(Lang.UI_NBT_ITEM_HINT), GRID_X, ROW_CHIPS + 2, 0xFF6a6a6a, false);
-            else gg.drawString(this.font, Lang.t(Lang.UI_NBT_FLUID_HINT), GRID_X, ROW_CHIPS + 2, 0xFF6a6a6a, false);
-        } else { // 物品页
+        // ITEM page hint (the grid is the main content; tag/nbt pages draw their own content in render())
+        if (page == Page.ITEM) {
             Component hint = chType == ChannelType.ITEM ? Lang.t(Lang.UI_ITEM_HINT) : Lang.t(Lang.UI_FLUID_HINT);
             gg.drawString(this.font, hint, GRID_X, ROW_CHIPS + 2, 0xFF6a6a6a, false);
         }
     }
 
-    /** tag chips are drawn in renderLabels space (already translated by leftPos/topPos). */
-    private void drawTagChips(GuiGraphics gg) {
+    /** TAG page: a scrollable vertical tag list (many rows) + the add box lives in the strip. */
+    private void drawTagPage(GuiGraphics gg) {
+        if (chType != ChannelType.ITEM) { drawTypeOnlyNote(gg); return; }
+        int x0 = leftPos + TAG_X, y0 = topPos + TAG_Y;
+        int listH = TAG_LIST_H;
+        int visible = listH / TAG_ROW_H;
         tagHits.clear();
-        if (chType != ChannelType.ITEM) return;
-        int chipH = 12, gap = 2, cx = GRID_X, cy = ROW_CHIPS;
-        if (tagScroll > itemTags.size()) tagScroll = itemTags.size();
-        int remaining = 0;
-        boolean moreUp = tagScroll > 0;
-        boolean moreDown = false;
-        for (int i = tagScroll; i < itemTags.size(); i++) {
+        int maxScroll = Math.max(0, itemTags.size() - visible);
+        if (tagScroll > maxScroll) tagScroll = maxScroll;
+        if (tagScroll < 0) tagScroll = 0;
+        for (int i = tagScroll; i < itemTags.size() && i - tagScroll < visible; i++) {
+            int ry = y0 + (i - tagScroll) * TAG_ROW_H;
             String s = "#" + itemTags.get(i);
-            int cw = this.font.width(s) + 8;
-            if (cx + cw > imageWidth - 8) {
-                remaining = itemTags.size() - i;
-                break;                              // one row only; rest stay folded behind the scroll
-            }
-            if (i + 1 < itemTags.size()) moreDown = true;
-            gg.fill(cx, cy, cx + cw, cy + chipH, 0xFF8b8b8b);
-            gg.fill(cx, cy, cx + cw, cy + 1, 0xFFdedede);
-            gg.fill(cx, cy, cx + 1, cy + chipH, 0xFFdedede);
-            gg.fill(cx, cy + chipH - 1, cx + cw, cy + chipH, 0xFF555555);
-            gg.fill(cx + cw - 1, cy, cx + cw, cy + chipH, 0xFF555555);
-            gg.drawString(this.font, Component.literal(s), cx + 4, cy + 2, 0xFFFFFFFF, false);
-            tagHits.add(new TagHit(i, leftPos + cx, topPos + cy, cw, chipH));
-            cx += cw + gap;
-        }
-        // scroll indicators (fold/collapse affordance)
-        if (moreUp) {
-            gg.drawString(this.font, Component.literal("↑"), GRID_X, cy + 1, 0xFF404040, false);
-            cx += 10;
-        }
-        if (remaining > 0) {
-            String fold = "+" + remaining;
-            int cw = this.font.width(fold) + 8;
-            if (cx + cw <= imageWidth - 8) {
-                gg.fill(cx, cy, cx + cw, cy + chipH, 0xFF6a6a6a);
-                gg.fill(cx, cy, cx + cw, cy + 1, 0xFFbdbdbd);
-                gg.fill(cx, cy, cx + 1, cy + chipH, 0xFFbdbdbd);
-                gg.fill(cx, cy + chipH - 1, cx + cw, cy + chipH, 0xFF4a4a4a);
-                gg.fill(cx + cw - 1, cy, cx + cw, cy + chipH, 0xFF4a4a4a);
-                gg.drawString(this.font, Component.literal(fold), cx + 4, cy + 2, 0xFFFFFFFF, false);
-                tagHits.add(new TagHit(-1, leftPos + cx, topPos + cy, cw, chipH));
-                moreDown = false;   // the "+N" chip is the fold target; tapping it opens one page
-            }
-        }
-        if (moreDown) {
-            gg.drawString(this.font, Component.literal("▾"), cx + 2, cy + 1, 0xFF404040, false);
+            gg.fill(x0, ry, x0 + TAG_W, ry + TAG_ROW_H - 1, 0xFF9a9a9a);
+            gg.fill(x0, ry, x0 + TAG_W, ry + 1, 0xFFcfcfcf);
+            gg.fill(x0, ry, x0 + 1, ry + TAG_ROW_H - 1, 0xFFcfcfcf);
+            gg.fill(x0 + TAG_W - 1, ry, x0 + TAG_W, ry + TAG_ROW_H - 1, 0xFF444444);
+            gg.fill(x0 + TAG_W - 13, ry, x0 + TAG_W - 12, ry + TAG_ROW_H - 1, 0xFFc03030); // × column
+            gg.drawString(this.font, Component.literal(trim(s, TAG_W - 20)), x0 + 4, ry + 2, 0xFF101010, false);
+            gg.drawString(this.font, Component.literal("×"), x0 + TAG_W - 11, ry + 2, 0xFFFFFFFF, false);
+            tagHits.add(new TagHit(i, x0, ry, TAG_W, TAG_ROW_H - 1));
         }
         if (itemTags.isEmpty())
-            gg.drawString(this.font, Lang.t(Lang.UI_TAG_EMPTY), GRID_X, ROW_CHIPS + 2, 0xFF6a6a6a, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_TAG_EMPTY), x0, y0 + 4, 0xFF6a6a6a, false);
+        // simple scrollbar
+        if (maxScroll > 0) {
+            int barX = x0 + TAG_W + 1;
+            int barH = listH;
+            gg.fill(barX, y0, barX + 3, y0 + barH, 0xFF8b8b8b);
+            int thumbH = Math.max(8, barH * visible / itemTags.size());
+            int thumbY = y0 + (barH - thumbH) * tagScroll / maxScroll;
+            gg.fill(barX, thumbY, barX + 3, thumbY + thumbH, 0xFF404040);
+        }
+    }
+
+    /** NBT page: the large multi-line editor. The strict-NBT toggle lives in the strip. */
+    private void drawNbtPage(GuiGraphics gg) {
+        if (chType != ChannelType.ITEM) { drawTypeOnlyNote(gg); return; }
+        if (nbtEdit != null) nbtEdit.render(gg);
+        gg.drawString(this.font, Lang.t(Lang.UI_NBT_REGEX_HINT), leftPos + NBT_X, topPos + NBT_Y + NBT_H + 4, 0xFF6a6a6a, false);
+    }
+
+    private void drawTypeOnlyNote(GuiGraphics gg) {
+        gg.drawString(this.font, Lang.t(Lang.UI_FILTER_TYPE_ONLY), leftPos + 8, topPos + 40, 0xFF404040, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_FILTER_TYPE_ONLY2), leftPos + 8, topPos + 56, 0xFF6a6a6a, false);
     }
 
     @Override
     public boolean mouseScrolled(double mx, double my, double delta) {
-        if (page == Page.TAG && chType == ChannelType.ITEM && my >= topPos + ROW_CHIPS && my <= topPos + ROW_CHIPS + 12
-                && mx >= leftPos + GRID_X && mx <= leftPos + imageWidth - 8) {
-            tagScroll = Math.max(0, Math.min(itemTags.size(),
-                    tagScroll + (int) Math.signum(delta) * 3));
+        if (page == Page.TAG && chType == ChannelType.ITEM
+                && mx >= leftPos && mx <= leftPos + imageWidth && my >= topPos + TAG_Y && my <= topPos + TAG_Y + TAG_LIST_H) {
+            int visible = TAG_LIST_H / TAG_ROW_H;
+            int maxScroll = Math.max(0, itemTags.size() - visible);
+            tagScroll = Math.max(0, Math.min(maxScroll, tagScroll - (int) Math.signum(delta)));
             return true;
         }
         return super.mouseScrolled(mx, my, delta);
+    }
+
+    @Override
+    public boolean mouseClicked(double mx, double my, int button) {
+        int ix = (int) mx, iy = (int) my;
+        if (nbtEdit != null && nbtEdit.mouseClicked(mx, my, button)) return true;
+        for (TagHit h : tagHits) {
+            if (ix >= h.x && ix <= h.x + h.w && iy >= h.y && iy <= h.y + h.h) {
+                if (h.id >= 0 && h.id < itemTags.size()) itemTags.remove(h.id);
+                return true;
+            }
+        }
+        return super.mouseClicked(mx, my, button);
+    }
+
+    @Override
+    public boolean charTyped(char c, int k) {
+        if (nbtEdit != null && nbtEdit.focused) return nbtEdit.charTyped(c, k);
+        return super.charTyped(c, k);
+    }
+
+    @Override
+    public boolean keyPressed(int key, int scan, int mods) {
+        if (key == InputConstants.KEY_ESCAPE) { onClose(); return true; }
+        if (tagBox != null && tagBox.isFocused()) {
+            if (key == InputConstants.KEY_RETURN || key == InputConstants.KEY_NUMPADENTER) { addTagFromBox(); return true; }
+            tagBox.keyPressed(key, scan, mods);
+            return true;    // swallow, so the vanilla inventory key ('E') cannot close the screen while typing
+        }
+        if (nbtEdit != null && nbtEdit.focused) { nbtEdit.keyPressed(key, scan, mods); return true; }
+        return super.keyPressed(key, scan, mods);
+    }
+
+    @Override
+    public void onClose() {
+        minecraft.setScreen(parent);   // never call player.closeContainer(): this menu was never opened server-side
+    }
+
+    @Override
+    public boolean isPauseScreen() { return false; }
+
+    private int fluidTint(FluidStack fs) {
+        Fluid fluid = fs.getFluid();
+        if (fluid == Fluids.EMPTY) return 0xFF555555;
+        return IClientFluidTypeExtensions.of(fluid).getTintColor(fs) | 0xFF000000;
+    }
+
+    private String trim(String s, int maxPx) {
+        if (s == null) return "";
+        if (this.font.width(s) <= maxPx) return s;
+        while (this.font.width(s + "…") > maxPx && s.length() > 1) s = s.substring(0, s.length() - 1);
+        return s + "…";
+    }
+
+    private record TagHit(int id, int x, int y, int w, int h) {}
+
+    // ============================================================ input (marker grid)
+    /**
+     * Fully overridden: the menu is client-only, so no click may ever turn into a container packet.
+     * Marker slots remove an entry, inventory slots add one (only while the ITEM page is active).
+     */
+    @Override
+    protected void slotClicked(Slot slot, int slotId, int mouseButton, ClickType clickType) {
+        if (slot == null) return;
+        if (page != Page.ITEM) return;   // off the ITEM page the grid is inert
+        if (slot.container == this.menu.ghost) {
+            int idx = slot.getSlotIndex();
+            if (chType == ChannelType.ITEM && idx < itemTpl.size()) { itemTpl.remove(idx); syncGhost(); }
+            else if (chType == ChannelType.FLUID && idx < fluidTpl.size()) { fluidTpl.remove(idx); syncGhost(); }
+            return;
+        }
+        addMarker(slot.getItem());
     }
 
     /** Vanilla-style grey button (same chrome as Sky Logistics' ConfigPanel buttons). */
@@ -400,66 +489,189 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         }
     }
 
-    // ============================================================ input
     /**
-     * Fully overridden: the menu is client-only, so no click may ever turn into a container packet.
-     * Marker slots remove an entry, inventory slots add one.
+     * Lightweight multi-line text editor: soft-wraps long lines, scrolls vertically, supports newline,
+     * backspace/delete, arrows, Home/End. Used for the NBT/regex filter on the NBT page.
      */
-    @Override
-    protected void slotClicked(Slot slot, int slotId, int mouseButton, ClickType clickType) {
-        if (slot == null) return;
-        if (slot.container == this.menu.ghost) {
-            int idx = slot.getSlotIndex();
-            if (chType == ChannelType.ITEM && idx < itemTpl.size()) { itemTpl.remove(idx); syncGhost(); }
-            else if (chType == ChannelType.FLUID && idx < fluidTpl.size()) { fluidTpl.remove(idx); syncGhost(); }
-            return;
-        }
-        addMarker(slot.getItem());
-    }
+    private static class MultilineEdit {
+        final Font font;
+        final int x, y, w, h;
+        final List<String> lines = new ArrayList<>();
+        int caretLine = 0, caretCol = 0;
+        int scroll = 0;
+        boolean focused = false;
+        final int lineH = 12;
 
-    @Override
-    public boolean mouseClicked(double mx, double my, int button) {
-        int ix = (int) mx, iy = (int) my;
-        for (TagHit h : tagHits) {
-            if (ix >= h.x && ix <= h.x + h.w && iy >= h.y && iy <= h.y + h.h) {
-                if (h.id == -1) tagScroll = Math.min(itemTags.size(), tagScroll + 3);   // fold chip: scroll forward
-                else if (h.id < itemTags.size()) itemTags.remove(h.id);
-                return true;
+        MultilineEdit(Font f, int x, int y, int w, int h) {
+            this.font = f; this.x = x; this.y = y; this.w = w; this.h = h;
+        }
+
+        void setValue(String s) {
+            lines.clear();
+            if (s == null || s.isEmpty()) { lines.add(""); return; }
+            for (String l : s.split("\n", -1)) lines.add(l);
+            if (lines.isEmpty()) lines.add("");
+        }
+
+        String getValue() { return String.join("\n", lines); }
+
+        private List<int[]> wrapLine(String s) {
+            List<int[]> segs = new ArrayList<>();
+            if (s.isEmpty()) { segs.add(new int[]{0, 0}); return segs; }
+            int start = 0;
+            while (start < s.length()) {
+                int end = start, curW = 0;
+                while (end < s.length() && curW + font.width(s.substring(end, end + 1)) <= w - 6) {
+                    curW += font.width(s.substring(end, end + 1));
+                    end++;
+                }
+                if (end == start) end = start + 1;
+                segs.add(new int[]{start, end});
+                start = end;
+            }
+            return segs;
+        }
+
+        void render(GuiGraphics gg) {
+            gg.fill(x, y, x + w, y + h, 0xFF0a0a0a);
+            gg.fill(x, y, x + w, y + 1, 0xFF555555);
+            gg.fill(x, y, x + 1, y + h, 0xFF555555);
+            gg.fill(x + w - 1, y, x + w, y + h, 0xFF222222);
+            gg.fill(x, y + h - 1, x + w, y + h, 0xFF222222);
+            int rowsPerScreen = h / lineH;
+            List<int[]> visual = new ArrayList<>();
+            List<int[]> meta = new ArrayList<>();   // {lineIndex, segStart, segEnd}
+            for (int li = 0; li < lines.size(); li++) {
+                for (int[] seg : wrapLine(lines.get(li))) { visual.add(seg); meta.add(new int[]{li, seg[0], seg[1]}); }
+            }
+            int maxScroll = Math.max(0, visual.size() - rowsPerScreen);
+            if (scroll > maxScroll) scroll = maxScroll;
+            if (scroll < 0) scroll = 0;
+            for (int r = scroll; r < visual.size() && r - scroll < rowsPerScreen; r++) {
+                int[] seg = visual.get(r);
+                int[] m = meta.get(r);
+                String txt = lines.get(m[0]).substring(seg[0], seg[1]);
+                int ry = y + 2 + (r - scroll) * lineH;
+                gg.drawString(font, Component.literal(txt), x + 3, ry, 0xFFe0e0e0, false);
+            }
+            if (focused) {
+                int vc = 0;
+                for (int li = 0; li < caretLine; li++) vc += wrapLine(lines.get(li)).size();
+                List<int[]> segs = wrapLine(lines.get(caretLine));
+                int rr = -1;
+                for (int i = 0; i < segs.size(); i++) {
+                    int[] seg = segs.get(i);
+                    if (caretCol <= seg[1] || i == segs.size() - 1) { rr = vc + i; break; }
+                }
+                if (rr >= 0 && rr - scroll >= 0 && rr - scroll < rowsPerScreen) {
+                    int[] seg = segs.get(Math.min(rr - vc, segs.size() - 1));
+                    String pre = lines.get(caretLine).substring(seg[0], Math.min(caretCol, seg[1]));
+                    int cx = x + 3 + font.width(pre);
+                    int ry = y + 2 + (rr - scroll) * lineH;
+                    gg.fill(cx, ry - 1, cx + 1, ry + lineH - 1, 0xFFFFFFFF);
+                }
+            }
+            if (maxScroll > 0) {
+                int barX = x + w + 1;
+                int thumbH = Math.max(8, h * rowsPerScreen / visual.size());
+                int thumbY = y + (h - thumbH) * scroll / maxScroll;
+                gg.fill(barX, y, barX + 3, y + h, 0xFF8b8b8b);
+                gg.fill(barX, thumbY, barX + 3, thumbY + thumbH, 0xFF404040);
             }
         }
-        return super.mouseClicked(mx, my, button);
-    }
 
-    @Override
-    public boolean keyPressed(int key, int scan, int mods) {
-        if (key == InputConstants.KEY_ESCAPE) { onClose(); return true; }
-        if (tagBox != null && tagBox.isFocused()) {
-            if (key == InputConstants.KEY_RETURN || key == InputConstants.KEY_NUMPADENTER) { addTagFromBox(); return true; }
-            tagBox.keyPressed(key, scan, mods);
-            return true;    // swallow, so the vanilla inventory key ('E') cannot close the screen while typing
-        }
-        if (regexBox != null && regexBox.isFocused()) {
-            regexBox.keyPressed(key, scan, mods);
+        boolean mouseClicked(double mx, double my, int b) {
+            if (mx < x || mx > x + w || my < y || my > y + h) { focused = false; return false; }
+            focused = true;
+            int rowsPerScreen = h / lineH;
+            int r = (int) ((my - y - 2) / lineH) + scroll;
+            int maxScroll = Math.max(0, totalVisual() - rowsPerScreen);
+            if (r < 0 || r >= totalVisual()) { caretLine = Math.max(0, lines.size() - 1); caretCol = lines.get(caretLine).length(); return true; }
+            // map visual row r -> logical line + column
+            int acc = 0, li = 0;
+            for (; li < lines.size(); li++) {
+                int n = wrapLine(lines.get(li)).size();
+                if (acc + n > r) break;
+                acc += n;
+            }
+            if (li >= lines.size()) li = lines.size() - 1;
+            List<int[]> segs = wrapLine(lines.get(li));
+            int local = r - acc;
+            if (local >= segs.size()) local = segs.size() - 1;
+            int[] seg = segs.get(local);
+            int col = seg[0];
+            int runW = 0;
+            while (col < seg[1] && runW + font.width(lines.get(li).substring(col, col + 1)) <= (mx - x - 3)) {
+                runW += font.width(lines.get(li).substring(col, col + 1));
+                col++;
+            }
+            caretLine = li; caretCol = col;
             return true;
         }
-        return super.keyPressed(key, scan, mods);
+
+        private int totalVisual() {
+            int n = 0;
+            for (String l : lines) n += wrapLine(l).size();
+            return n;
+        }
+
+        boolean charTyped(char c, int k) {
+            if (!focused) return false;
+            if (c < 32) return false;   // control chars (incl. newline) are handled via keyPressed
+            String line = lines.get(caretLine);
+            lines.set(caretLine, line.substring(0, caretCol) + c + line.substring(caretCol));
+            caretCol++;
+            return true;
+        }
+
+        boolean keyPressed(int key, int scan, int mods) {
+            if (!focused) return false;
+            switch (key) {
+                case InputConstants.KEY_BACKSPACE -> {
+                    if (caretCol > 0) {
+                        String line = lines.get(caretLine);
+                        lines.set(caretLine, line.substring(0, caretCol - 1) + line.substring(caretCol));
+                        caretCol--;
+                    } else if (caretLine > 0) {
+                        String prev = lines.get(caretLine - 1);
+                        caretCol = prev.length();
+                        lines.set(caretLine - 1, prev + lines.get(caretLine));
+                        lines.remove(caretLine);
+                        caretLine--;
+                    }
+                }
+                case InputConstants.KEY_DELETE -> {
+                    String line = lines.get(caretLine);
+                    if (caretCol < line.length()) lines.set(caretLine, line.substring(0, caretCol) + line.substring(caretCol + 1));
+                    else if (caretLine < lines.size() - 1) {
+                        lines.set(caretLine, line + lines.get(caretLine + 1));
+                        lines.remove(caretLine + 1);
+                    }
+                }
+                case InputConstants.KEY_RETURN, InputConstants.KEY_NUMPADENTER -> {
+                    String line = lines.get(caretLine);
+                    String rest = line.substring(caretCol);
+                    lines.set(caretLine, line.substring(0, caretCol));
+                    lines.add(caretLine + 1, rest);
+                    caretLine++; caretCol = 0;
+                }
+                case InputConstants.KEY_LEFT -> {
+                    if (caretCol > 0) caretCol--;
+                    else if (caretLine > 0) { caretLine--; caretCol = lines.get(caretLine).length(); }
+                }
+                case InputConstants.KEY_RIGHT -> {
+                    if (caretCol < lines.get(caretLine).length()) caretCol++;
+                    else if (caretLine < lines.size() - 1) { caretLine++; caretCol = 0; }
+                }
+                case InputConstants.KEY_UP -> { if (caretLine > 0) { caretLine--; caretCol = Math.min(caretCol, lines.get(caretLine).length()); } }
+                case InputConstants.KEY_DOWN -> { if (caretLine < lines.size() - 1) { caretLine++; caretCol = Math.min(caretCol, lines.get(caretLine).length()); } }
+                case InputConstants.KEY_HOME -> caretCol = 0;
+                case InputConstants.KEY_END -> caretCol = lines.get(caretLine).length();
+                default -> { return false; }
+            }
+            return true;
+        }
     }
-
-    @Override
-    public void onClose() {
-        minecraft.setScreen(parent);   // never call player.closeContainer(): this menu was never opened server-side
-    }
-
-    @Override
-    public boolean isPauseScreen() { return false; }
-
-    private int fluidTint(FluidStack fs) {
-        Fluid fluid = fs.getFluid();
-        if (fluid == Fluids.EMPTY) return 0xFF555555;
-        return IClientFluidTypeExtensions.of(fluid).getTintColor(fs) | 0xFF000000;
-    }
-
-    private record TagHit(int id, int x, int y, int w, int h) {}
 
     // ============================================================ client-only menu
     /**
@@ -490,13 +702,14 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     }
 
     private static class ReadOnlySlot extends Slot {
-        private final boolean active;
+        private boolean active;
 
         ReadOnlySlot(net.minecraft.world.Container container, int index, int x, int y, boolean active) {
             super(container, index, x, y);
             this.active = active;
         }
 
+        void setActive(boolean a) { this.active = a; }
         @Override public boolean mayPickup(Player player) { return false; }
         @Override public boolean mayPlace(ItemStack stack) { return false; }
         @Override public boolean isActive() { return active; }

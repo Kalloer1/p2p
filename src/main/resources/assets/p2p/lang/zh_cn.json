@@ -90,6 +90,8 @@
   "p2p.ui.item_hint": "将物品拖入上方网格设定模板 · 点击格子删除",
   "p2p.ui.fluid_hint": "将流体桶拖入上方网格 · 点击格子删除",
   "p2p.ui.tag_empty": "（无标签，点击标签可移除）",
+  "p2p.ui.filter_type_only": "该介质类型不支持标签 / NBT 过滤",
+  "p2p.ui.filter_type_only2": "仅 ITEM 频道可用标签与 NBT 页",
 
   "p2p.ui.create.header": "新建频道 · 选择类型",
 
