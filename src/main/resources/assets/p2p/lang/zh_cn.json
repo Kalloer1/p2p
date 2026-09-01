@@ -117,7 +117,7 @@
   "p2p.hud.bind_no_channel": " · 未选当前频道",
   "p2p.hud.hint": "  |  右键=输入  左键=输出  Ctrl=连锁  (再按 B 退出)",
   "p2p.hud.dimension": "维度: %s",
-  "p2p.hud.block": "方块: %s",
+  "p2p.hud.block": "方块: ",
 
   "p2p.msg.channel_gone": "绑定的频道 #%d 已不存在。",
   "p2p.msg.no_perm": "频道 #%d 属于别人的网络，你没有改动权限。",

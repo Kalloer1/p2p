@@ -23,6 +23,8 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
@@ -238,7 +240,9 @@ public class ChannelScreen extends Screen {
         // block icon tooltip: shows the block name at this endpoint's position
         for (BlockHit b : blockHits) {
             if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
-                gg.renderTooltip(this.font, Lang.t(Lang.HUD_BLOCK, b.block.getName()), mx, my);
+                gg.renderTooltip(this.font, Component.empty()
+                        .append(Lang.t(Lang.HUD_BLOCK))
+                        .append(b.block.getName()), mx, my);
                 break;
             }
         }
@@ -459,7 +463,13 @@ public class ChannelScreen extends Screen {
                 BlockState st = this.minecraft.level.getBlockState(m.pos);
                 Block blk = st.getBlock();
                 if (blk != Blocks.AIR && blk.asItem() != Items.AIR) {
-                    gg.renderItem(new ItemStack(blk.asItem()), rx + colIconX, ry + 0);
+                    // Use the state-aware pick-stack so modded blocks (e.g. Sophisticated Storage barrels)
+                    // render the correct variant/tint instead of the default block item.
+                    ItemStack pick = blk.getCloneItemStack(st,
+                            new BlockHitResult(Vec3.atCenterOf(m.pos), m.face, m.pos, false),
+                            this.minecraft.level, m.pos, this.minecraft.player);
+                    if (pick.isEmpty()) pick = new ItemStack(blk.asItem());
+                    gg.renderItem(pick, rx + colIconX, ry + 0);
                     blockHits.add(new BlockHit(i, rx + colIconX, ry, 16, 16, blk));
                 }
             }

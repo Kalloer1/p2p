@@ -117,7 +117,7 @@
   "p2p.hud.bind_no_channel": " · No bound channel",
   "p2p.hud.hint": "  |  Right-click = input   Left-click = output  Ctrl = chain  (press B again to exit)",
   "p2p.hud.dimension": "Dimension: %s",
-  "p2p.hud.block": "Block: %s",
+  "p2p.hud.block": "Block: ",
 
   "p2p.msg.channel_gone": "Bound channel #%d no longer exists.",
   "p2p.msg.no_perm": "Channel #%d belongs to someone else's network; you have no permission to edit it.",
