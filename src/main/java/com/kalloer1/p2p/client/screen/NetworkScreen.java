@@ -26,9 +26,9 @@ import java.util.List;
 public class NetworkScreen extends Screen {
 
     private static final int W = 384, H = 208;
-    private static final int STONE = 0xFFC6C6C6, HI = 0xFFFFFFFF, SH = 0xFF555555;
-    private static final int ROW_BG = 0xFFbdbdbd, SEL = 0xFFe8e8e8, TAB = 0xFF2f2f2f;
-    private static final int INK = 0xFF2b2b2b, INK_DIM = 0xFF5a5a5a, TITLE = 0xFFe6e6e6;
+    private static final int STONE = P2PGuiTextures.ROW_BG, HI = P2PGuiTextures.FAUX_HI, SH = P2PGuiTextures.FAUX_SH;
+    private static final int ROW_BG = P2PGuiTextures.ROW_BG, SEL = P2PGuiTextures.SEL, TAB = P2PGuiTextures.TAB_BG;
+    private static final int INK = P2PGuiTextures.INK, INK_DIM = P2PGuiTextures.INK_DIM, TITLE = P2PGuiTextures.TITLE;
 
     private int leftPos, topPos;
     private final List<Network> nets = new ArrayList<>();
@@ -85,7 +85,7 @@ public class NetworkScreen extends Screen {
         gg.fill(x, ty, x + W, ty + 16, TAB);
         gg.fill(x, ty, x + W, ty + 1, HI);
         gg.drawString(this.font, Lang.t(Lang.UI_SELECT_NETWORK), x + 6, ty + 4, TITLE, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_SHARE_HINT), x + W / 2 - 84, ty + 4, 0xFFc9c9c9, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_SHARE_HINT), x + W / 2 - 84, ty + 4, 0xFFB8BEC4, false);
 
         // main panel from atlas (9-slice)
         P2PGuiTextures.panel(gg, x, y, W, H);

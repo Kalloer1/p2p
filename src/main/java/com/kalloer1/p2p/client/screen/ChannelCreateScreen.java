@@ -18,9 +18,9 @@ import java.util.List;
  */
 public class ChannelCreateScreen extends Screen {
     private static final int W = 232, H = 176;
-    private static final int TITLE = 0xFFe6e6e6;
-    private static final int INK = 0xFF2b2b2b;
-    private static final int INK_DIM = 0xFF5a5a5a;
+    private static final int TITLE = P2PGuiTextures.TITLE;
+    private static final int INK = P2PGuiTextures.INK;
+    private static final int INK_DIM = P2PGuiTextures.INK_DIM;
 
     private final Screen parent;
     private int leftPos, topPos;

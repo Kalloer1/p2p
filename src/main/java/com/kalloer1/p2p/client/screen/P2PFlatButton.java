@@ -22,7 +22,7 @@ public class P2PFlatButton extends Button {
         if (getMessage() != null) {
             Font f = Minecraft.getInstance().font;
             gg.drawString(f, getMessage(), x + (w - f.width(getMessage())) / 2,
-                    y + (h - 8) / 2, active ? 0xFF000000 : 0xFF707070, false);
+                    y + (h - 8) / 2, active ? 0xFFF0F0F0 : 0xFF8A8F96, false);
         }
     }
 }

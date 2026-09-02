@@ -46,6 +46,24 @@ public final class P2PGuiTextures {
     public static final Rgn CHECK      = new Rgn(50, 26, 14, 14, 0);
     public static final Rgn CHECK_ON   = new Rgn(68, 26, 14, 14, 0);
 
+    // ---- shared dark-theme palette (ARGB) ----
+    // Single source of truth for every screen's chrome so the whole mod stays consistent.
+    public static final int INK       = 0xFFE6E6E6;  // primary text (light)
+    public static final int INK_DIM   = 0xFF9AA0A6;  // secondary / dim text
+    public static final int TITLE     = 0xFFE8E8E8;  // header / title text
+    public static final int TAB_BG    = 0xFF262A30;  // top tab / header strip
+    public static final int ROW_BG    = 0xFF2C3138;  // inner list background (left column)
+    public static final int ROW_BG2   = 0xFF333941;  // inner panel background (right / detail)
+    public static final int SEL       = 0xFF3C4350;  // selected row highlight
+    public static final int GRP_BG    = 0xFF363C45;  // group header background
+    public static final int SEP       = 0xFF1E2228;  // subtle row separator
+    public static final int FAUX_BTN  = 0xFF3A4150;  // faux button fill
+    public static final int FAUX_HI   = 0xFF565E6B;  // faux/inset light bevel edge (top/left for raised)
+    public static final int FAUX_SH   = 0xFF14171C;  // faux/inset dark bevel edge (bottom/right / recessed top-left)
+    public static final int MARK_GOLD = 0xFFD6B24A;  // marked-filter accent
+    public static final int DANGER    = 0xFFE06B6B;  // destructive text
+    public static final int OK_GREEN  = 0xFF5FC35F;  // positive text
+
     /** Fixed-size blit. */
     public static void blit(GuiGraphics gg, int x, int y, Rgn r) {
         gg.blit(ATLAS, x, y, r.u, r.v, r.w, r.h, ATLAS_W, ATLAS_H);

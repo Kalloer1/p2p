@@ -17,8 +17,8 @@ import net.minecraft.network.chat.Component;
  */
 public class NameInputScreen extends Screen {
     private static final int W = 384, H = 120;
-    private static final int STONE = 0xFFC6C6C6, HI = 0xFFFFFFFF, SH = 0xFF555555, TAB = 0xFF2f2f2f;
-    private static final int INK = 0xFF2b2b2b, TITLE = 0xFFe6e6e6;
+    private static final int STONE = P2PGuiTextures.ROW_BG, HI = P2PGuiTextures.FAUX_HI, SH = P2PGuiTextures.FAUX_SH, TAB = P2PGuiTextures.TAB_BG;
+    private static final int INK = P2PGuiTextures.INK, TITLE = P2PGuiTextures.TITLE;
     private final Screen parent;
     private final Component title;
     private final String initial;

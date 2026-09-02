@@ -53,9 +53,9 @@ public class ChannelScreen extends Screen {
     private static final int H = 208; // panel; +16 top tab = 224 total, within 232 ceiling
 
     // ---- palette (MC stone) ----
-    private static final int STONE = 0xFFC6C6C6, HI = 0xFFFFFFFF, SH = 0xFF555555;
-    private static final int LEFT_BG = 0xFFbdbdbd, RIGHT_BG = 0xFFcfcfcf, SEL = 0xFFe8e8e8, GRP_BG = 0xFFa6a6a6, TAB = 0xFF2f2f2f;
-    private static final int INK = 0xFF2b2b2b, INK_DIM = 0xFF5a5a5a, TITLE = 0xFFe6e6e6;
+    private static final int STONE = P2PGuiTextures.ROW_BG, HI = P2PGuiTextures.FAUX_HI, SH = P2PGuiTextures.FAUX_SH;
+    private static final int LEFT_BG = P2PGuiTextures.ROW_BG, RIGHT_BG = P2PGuiTextures.ROW_BG2, SEL = P2PGuiTextures.SEL, GRP_BG = P2PGuiTextures.GRP_BG, TAB = P2PGuiTextures.TAB_BG;
+    private static final int INK = P2PGuiTextures.INK, INK_DIM = P2PGuiTextures.INK_DIM, TITLE = P2PGuiTextures.TITLE;
     private static final int IN_C = 0xFFd93a3a, OUT_C = 0xFF3a7ad9; // INPUT=red, OUTPUT=blue
 
     private int leftPos, topPos;
@@ -260,8 +260,8 @@ public class ChannelScreen extends Screen {
         if (!nets.isEmpty()) {
             String nm = trim(nets.get(netIndex).name, 200);
             int nmX = x + W / 2 - this.font.width(nm) / 2;
-            gg.drawString(this.font, Component.literal(nm), nmX, ty + 4, 0xFFc9c9c9, false);
-            gg.drawString(this.font, Component.literal("▾"), nmX + this.font.width(nm) + 4, ty + 4, 0xFFc9c9c9, false);
+            gg.drawString(this.font, Component.literal(nm), nmX, ty + 4, 0xFFB8BEC4, false);
+            gg.drawString(this.font, Component.literal("▾"), nmX + this.font.width(nm) + 4, ty + 4, 0xFFB8BEC4, false);
             netNameHitX = nmX; netNameHitW = this.font.width(nm) + 12; netNameHitValid = true;
         } else netNameHitValid = false;
         // main panel from atlas (9-slice)
@@ -302,11 +302,11 @@ public class ChannelScreen extends Screen {
                 String cnt = String.valueOf(groupCount(r.id));
                 gg.drawString(this.font, Component.literal(cnt), lx + lw - 8 - this.font.width(cnt), ry + 4, INK_DIM, false);
                 leftRects.add(new Hit(lx + 1, ry, lw - 2, rowH, 0, r.id));
-                gg.fill(lx + 1, ry + rowH - 1, lx + lw - 1, ry + rowH, 0xFF9a9a9a);   // separator under header
+                gg.fill(lx + 1, ry + rowH - 1, lx + lw - 1, ry + rowH, P2PGuiTextures.SEP);   // separator under header
             } else { // channel row — child rows are indented with a left tree guide line
                 boolean sel = r.id == selectedChannel;
                 if (sel) gg.fill(lx + 1, ry, lx + lw - 1, ry + rowH, SEL);
-                if (r.child) gg.fill(lx + 2, ry + 2, lx + 4, ry + rowH - 2, 0xFF9a9a9a);  // tree guide line
+                if (r.child) gg.fill(lx + 2, ry + 2, lx + 4, ry + rowH - 2, 0xFF5A6068);  // tree guide line
                 int ind = r.child ? 26 : 8;
                 int rowInk = sel ? 0xFFFFFFFF : INK_DIM;
                 // show the channel name only (no "#id" prefix); trim so the type tag fits inside the list border
@@ -315,7 +315,7 @@ public class ChannelScreen extends Screen {
                 // medium tag moved left (28px wide) so its right edge stays inside the list bevel
                 typeTag(gg, lx + lw - 32, ry + 2, r.type);
                 leftRects.add(new Hit(lx + 1, ry, lw - 2, rowH, 1, r.id));
-                gg.fill(lx + 1, ry + rowH - 1, lx + lw - 1, ry + rowH, 0xFF9a9a9a);   // row separator
+                gg.fill(lx + 1, ry + rowH - 1, lx + lw - 1, ry + rowH, P2PGuiTextures.SEP);   // row separator
             }
         }
             if (rows.isEmpty())
@@ -411,20 +411,20 @@ public class ChannelScreen extends Screen {
         inset(gg, rx, mTop, rw, mBottom - mTop);
         // header strip
         gg.fill(rx + 1, mTop + 1, rx + rw - 1, mTop + headerH - 1, SEL);
-        gg.drawString(this.font, Lang.t(Lang.UI_DIM), rx + 4, mTop + 5, 0xFF2b2b2b, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_POS), rx + 29, mTop + 5, 0xFF2b2b2b, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_FACE), rx + 93, mTop + 5, 0xFF2b2b2b, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_FLOW), rx + 108, mTop + 5, 0xFF2b2b2b, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_DIM), rx + 4, mTop + 5, 0xFFE0E0E0, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_POS), rx + 29, mTop + 5, 0xFFE0E0E0, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_FACE), rx + 93, mTop + 5, 0xFFE0E0E0, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_FLOW), rx + 108, mTop + 5, 0xFFE0E0E0, false);
         Component cnt = Lang.t(Lang.UI_MEMBER_COUNT, c.members.size());
-        gg.drawString(this.font, cnt, rx + rw - 6 - this.font.width(cnt), mTop + 5, 0xFF2b2b2b, false);
+        gg.drawString(this.font, cnt, rx + rw - 6 - this.font.width(cnt), mTop + 5, 0xFFE0E0E0, false);
 
         memberBtns.clear();
         posHits.clear();
         dimHits.clear();
         blockHits.clear();
         if (c.members.isEmpty()) {
-            gg.drawString(this.font, Lang.t(Lang.UI_NO_ENDPOINT), rx + 10, mTop + 26, 0xFF2b2b2b, false);
-            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT2), rx + 10, mTop + 42, 0xFF5a5a5a, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_ENDPOINT), rx + 10, mTop + 26, 0xFFE0E0E0, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT2), rx + 10, mTop + 42, P2PGuiTextures.INK_DIM, false);
             return;
         }
         memberContentH = c.members.size() * rowH;
@@ -452,7 +452,7 @@ public class ChannelScreen extends Screen {
             boolean sel = i == selectedMember;
             if (sel) gg.fill(rx + 1, ry, rx + rw - 1, ry + rowH, SEL);
             // subtle row separator
-            gg.fill(rx + 2, ry + rowH - 1, rx + rw - 2, ry + rowH, 0xFF999999);
+            gg.fill(rx + 2, ry + rowH - 1, rx + rw - 2, ry + rowH, P2PGuiTextures.SEP);
 
             // 方块图标：坐标节点旁显示该位置方块，方便辨认（仅同维度 / 世界已加载时可查）
             if (this.minecraft.level != null && this.minecraft.level.dimension().location().equals(m.dim)) {
@@ -474,19 +474,19 @@ public class ChannelScreen extends Screen {
             String dimId = m.dim.toString();
             gg.fill(rx + colDimX, ry + 3, rx + colDimX + colDimW, ry + 12, dimColor(dimId) | 0xFF000000);
             String dimS = dimShort(dimId);
-            gg.drawString(this.font, Component.literal(dimS), rx + colDimTextX, ry + 4, 0xFF2b2b2b, false);
+            gg.drawString(this.font, Component.literal(dimS), rx + colDimTextX, ry + 4, 0xFFE0E0E0, false);
             dimHits.add(new DimHit(dimId, rx + colDimX, ry + 2, colDimTextX - colDimX + this.font.width(dimS) + 2, 14));
 
             // coordinate (left-aligned at a fixed x; ellipsised if a huge coordinate would overflow)
             String pos = trim(m.pos.getX() + "," + m.pos.getY() + "," + m.pos.getZ(), colPosW);
             int posX = rx + colPosX;
-            gg.drawString(this.font, Component.literal(pos), posX, ry + 4, 0xFF2b2b2b, false);
+            gg.drawString(this.font, Component.literal(pos), posX, ry + 4, 0xFFE0E0E0, false);
             posHits.add(new PosHit(i, posX - 2, ry + 2, this.font.width(pos) + 4, 14));
 
             // face direction (centered in its column)
             Component face = faceShort(m.face);
             int faceW = this.font.width(face);
-            gg.drawString(this.font, face, rx + colFaceX + (colFaceW - faceW) / 2, ry + 4, 0xFF2b2b2b, false);
+            gg.drawString(this.font, face, rx + colFaceX + (colFaceW - faceW) / 2, ry + 4, 0xFFE0E0E0, false);
             faceHits.add(new FaceHit(i, rx + colFaceX - 2, ry + 1, colFaceW + 4, 14));
 
             // action buttons (fixed positions)
@@ -509,12 +509,12 @@ public class ChannelScreen extends Screen {
 
     // a faux button drawn with the bevel language (real input handled in mouseClicked)
     private void addInline(GuiGraphics gg, int bx, int by, int bw, int bh, String label, boolean marked) {
-        gg.fill(bx, by, bx + bw, by + bh, 0xFFdedede);
+        gg.fill(bx, by, bx + bw, by + bh, P2PGuiTextures.FAUX_BTN);
         gg.fill(bx, by, bx + bw, by + 1, HI);
         gg.fill(bx, by, bx + 1, by + bh, HI);
         gg.fill(bx, by + bh - 1, bx + bw, by + bh, SH);
         gg.fill(bx + bw - 1, by, bx + bw, by + bh, SH);
-        gg.drawString(this.font, Component.literal(label), bx + (bw - this.font.width(label)) / 2, by + 4, marked ? 0xFF9a7c1f : INK, false);
+        gg.drawString(this.font, Component.literal(label), bx + (bw - this.font.width(label)) / 2, by + 4, marked ? P2PGuiTextures.MARK_GOLD : INK, false);
     }
 
     // ============================================================ input
@@ -695,12 +695,12 @@ public class ChannelScreen extends Screen {
 
     /** Faux bevel button with red text, used for destructive row actions. */
     private void addDanger(GuiGraphics gg, int bx, int by, int bw, int bh, String label) {
-        gg.fill(bx, by, bx + bw, by + bh, 0xFFdedede);
+        gg.fill(bx, by, bx + bw, by + bh, P2PGuiTextures.FAUX_BTN);
         gg.fill(bx, by, bx + bw, by + 1, HI);
         gg.fill(bx, by, bx + 1, by + bh, HI);
         gg.fill(bx, by + bh - 1, bx + bw, by + bh, SH);
         gg.fill(bx + bw - 1, by, bx + bw, by + bh, SH);
-        gg.drawString(this.font, Component.literal(label), bx + (bw - this.font.width(label)) / 2, by + 4, 0xFFc03030, false);
+        gg.drawString(this.font, Component.literal(label), bx + (bw - this.font.width(label)) / 2, by + 4, P2PGuiTextures.DANGER, false);
     }
 
     // ============================================================ helpers

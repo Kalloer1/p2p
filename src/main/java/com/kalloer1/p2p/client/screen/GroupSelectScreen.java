@@ -20,9 +20,9 @@ import java.util.List;
 public class GroupSelectScreen extends Screen {
 
     private static final int W = 200, H = 176;
-    private static final int STONE = 0xFFC6C6C6, HI = 0xFFFFFFFF, SH = 0xFF555555;
-    private static final int ROW_BG = 0xFFbdbdbd, SEL = 0xFFe8e8e8, TAB = 0xFF2f2f2f;
-    private static final int INK = 0xFF2b2b2b, INK_DIM = 0xFF5a5a5a, TITLE = 0xFFe6e6e6;
+    private static final int STONE = P2PGuiTextures.ROW_BG, HI = P2PGuiTextures.FAUX_HI, SH = P2PGuiTextures.FAUX_SH;
+    private static final int ROW_BG = P2PGuiTextures.ROW_BG, SEL = P2PGuiTextures.SEL, TAB = P2PGuiTextures.TAB_BG;
+    private static final int INK = P2PGuiTextures.INK, INK_DIM = P2PGuiTextures.INK_DIM, TITLE = P2PGuiTextures.TITLE;
 
     private final Screen parent;
     private final int channelId;
@@ -93,7 +93,7 @@ public class GroupSelectScreen extends Screen {
             boolean current = r.id == currentGroupId;
             if (sel) gg.fill(x + 5, ry + 1, x + W - 5, ry + rowH - 1, SEL);
             String label = (current ? "✓ " : "  ") + r.name;
-            gg.drawString(this.font, Component.literal(label), x + 10, ry + 5, current ? 0xFF2f8a2f : INK, false);
+            gg.drawString(this.font, Component.literal(label), x + 10, ry + 5, current ? P2PGuiTextures.OK_GREEN : INK, false);
             hits.add(new Hit(x + 5, ry + 1, W - 10, rowH - 1, i));
         }
         if (rows.isEmpty())

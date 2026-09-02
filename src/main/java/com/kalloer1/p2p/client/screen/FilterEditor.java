@@ -71,7 +71,7 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     /** vanilla player-inventory y (84) and hotbar y (142) shifted down by EXTRA. */
     static final int INV_Y = 84 + EXTRA, HOTBAR_Y = 142 + EXTRA;
 
-    private static final int STONE = 0xFFC6C6C6, HI = 0xFFFFFFFF, SH = 0xFF555555;
+    private static final int STONE = 0xFF2C3138, HI = P2PGuiTextures.FAUX_HI, SH = P2PGuiTextures.FAUX_SH;
 
     // widget rows inside the inserted blank strip (relative to topPos)
     private static final int ROW_TAB = 76;        // 标签页按钮行
@@ -306,7 +306,7 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
             gg.fill(leftPos, topPos, leftPos + imageWidth, topPos + 76, STONE);
             gg.fill(leftPos, topPos + 160, leftPos + imageWidth, topPos + imageHeight, STONE);
             // redraw the title (it sits in the top band we just covered)
-            gg.drawString(this.font, this.title, leftPos + titleLabelX, topPos + titleLabelY, 0xFF404040, false);
+            gg.drawString(this.font, this.title, leftPos + titleLabelX, topPos + titleLabelY, 0xFFC0C6CC, false);
             if (page == Page.TAG) drawTagPage(gg);
             else drawNbtPage(gg);
         }
@@ -317,14 +317,14 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     protected void renderLabels(GuiGraphics gg, int mx, int my) {
         super.renderLabels(gg, mx, my);   // title + "物品栏", vanilla dark-grey ink
         if (chType == ChannelType.ENERGY) {
-            gg.fill(GRID_X, GRID_Y, GRID_X + GRID_COLS * SLOT, GRID_Y + GRID_ROWS * SLOT, 0xC0C6C6C6);
-            gg.drawString(this.font, Lang.t(Lang.UI_ENERGY_NOTE), GRID_X + 4, GRID_Y + 22, 0xFF404040, false);
+            gg.fill(GRID_X, GRID_Y, GRID_X + GRID_COLS * SLOT, GRID_Y + GRID_ROWS * SLOT, 0xC0262A30);
+            gg.drawString(this.font, Lang.t(Lang.UI_ENERGY_NOTE), GRID_X + 4, GRID_Y + 22, 0xFFC0C6CC, false);
             return;
         }
         // ITEM page hint (the grid is the main content; tag/nbt pages draw their own content in render())
         if (page == Page.ITEM) {
             Component hint = chType == ChannelType.ITEM ? Lang.t(Lang.UI_ITEM_HINT) : Lang.t(Lang.UI_FLUID_HINT);
-            gg.drawString(this.font, hint, GRID_X, ROW_CHIPS + 2, 0xFF6a6a6a, false);
+            gg.drawString(this.font, hint, GRID_X, ROW_CHIPS + 2, 0xFF9AA0A6, false);
         }
     }
 
@@ -341,12 +341,12 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         for (int i = tagScroll; i < itemTags.size() && i - tagScroll < visible; i++) {
             int ry = y0 + (i - tagScroll) * TAG_ROW_H;
             String s = "#" + itemTags.get(i);
-            gg.fill(x0, ry, x0 + TAG_W, ry + TAG_ROW_H - 1, 0xFF9a9a9a);
-            gg.fill(x0, ry, x0 + TAG_W, ry + 1, 0xFFcfcfcf);
-            gg.fill(x0, ry, x0 + 1, ry + TAG_ROW_H - 1, 0xFFcfcfcf);
-            gg.fill(x0 + TAG_W - 1, ry, x0 + TAG_W, ry + TAG_ROW_H - 1, 0xFF444444);
-            gg.fill(x0 + TAG_W - 13, ry, x0 + TAG_W - 12, ry + TAG_ROW_H - 1, 0xFFc03030); // × column
-            gg.drawString(this.font, Component.literal(trim(s, TAG_W - 20)), x0 + 4, ry + 2, 0xFF101010, false);
+            gg.fill(x0, ry, x0 + TAG_W, ry + TAG_ROW_H - 1, P2PGuiTextures.ROW_BG2);
+            gg.fill(x0, ry, x0 + TAG_W, ry + 1, P2PGuiTextures.FAUX_HI);
+            gg.fill(x0, ry, x0 + 1, ry + TAG_ROW_H - 1, P2PGuiTextures.FAUX_HI);
+            gg.fill(x0 + TAG_W - 1, ry, x0 + TAG_W, ry + TAG_ROW_H - 1, P2PGuiTextures.FAUX_SH);
+            gg.fill(x0 + TAG_W - 13, ry, x0 + TAG_W - 12, ry + TAG_ROW_H - 1, P2PGuiTextures.DANGER); // × column
+            gg.drawString(this.font, Component.literal(trim(s, TAG_W - 20)), x0 + 4, ry + 2, 0xFFE0E0E0, false);
             gg.drawString(this.font, Component.literal("×"), x0 + TAG_W - 11, ry + 2, 0xFFFFFFFF, false);
             tagHits.add(new TagHit(i, x0, ry, TAG_W, TAG_ROW_H - 1));
         }
@@ -356,10 +356,10 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         if (maxScroll > 0) {
             int barX = x0 + TAG_W + 1;
             int barH = listH;
-            gg.fill(barX, y0, barX + 3, y0 + barH, 0xFF8b8b8b);
+            gg.fill(barX, y0, barX + 3, y0 + barH, 0xFF5A6068);
             int thumbH = Math.max(8, barH * visible / itemTags.size());
             int thumbY = y0 + (barH - thumbH) * tagScroll / maxScroll;
-            gg.fill(barX, thumbY, barX + 3, thumbY + thumbH, 0xFF404040);
+            gg.fill(barX, thumbY, barX + 3, thumbY + thumbH, 0xFF2A2E34);
         }
     }
 
@@ -367,12 +367,12 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     private void drawNbtPage(GuiGraphics gg) {
         if (chType != ChannelType.ITEM) { drawTypeOnlyNote(gg); return; }
         if (nbtEdit != null) nbtEdit.render(gg);
-        gg.drawString(this.font, Lang.t(Lang.UI_NBT_REGEX_HINT), leftPos + NBT_X, topPos + NBT_Y + NBT_H + 4, 0xFF6a6a6a, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_NBT_REGEX_HINT), leftPos + NBT_X, topPos + NBT_Y + NBT_H + 4, 0xFF9AA0A6, false);
     }
 
     private void drawTypeOnlyNote(GuiGraphics gg) {
-        gg.drawString(this.font, Lang.t(Lang.UI_FILTER_TYPE_ONLY), leftPos + 8, topPos + 40, 0xFF404040, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_FILTER_TYPE_ONLY2), leftPos + 8, topPos + 56, 0xFF6a6a6a, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_FILTER_TYPE_ONLY), leftPos + 8, topPos + 40, 0xFFC0C6CC, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_FILTER_TYPE_ONLY2), leftPos + 8, topPos + 56, 0xFF9AA0A6, false);
     }
 
     @Override
@@ -546,7 +546,7 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
                 int thumbH = Math.max(8, h * rowsPerScreen / visual.size());
                 int thumbY = y + (h - thumbH) * scroll / maxScroll;
                 gg.fill(barX, y, barX + 3, y + h, 0xFF8b8b8b);
-                gg.fill(barX, thumbY, barX + 3, thumbY + thumbH, 0xFF404040);
+                gg.fill(barX, thumbY, barX + 3, thumbY + thumbH, 0xFF5A6068);
             }
         }
 
