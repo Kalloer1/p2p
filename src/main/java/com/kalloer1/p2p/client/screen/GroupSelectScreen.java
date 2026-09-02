@@ -50,10 +50,10 @@ public class GroupSelectScreen extends Screen {
     protected void init() {
         leftPos = (this.width - W) / 2;
         topPos = (this.height - H) / 2;
-        okBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_OK), b -> confirm())
-                .bounds(leftPos + W - 92, topPos + H - 24, 84, 20).build());
-        addRenderableWidget(Button.builder(Lang.t(Lang.UI_CANCEL), b -> minecraft.setScreen(parent))
-                .bounds(leftPos + 8, topPos + H - 24, 84, 20).build());
+        okBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_OK), b -> confirm())
+                .bounds(leftPos + W - 92, topPos + H - 24, 84, 20)));
+        addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_CANCEL), b -> minecraft.setScreen(parent))
+                .bounds(leftPos + 8, topPos + H - 24, 84, 20)));
     }
 
     @Override
@@ -72,12 +72,8 @@ public class GroupSelectScreen extends Screen {
         gg.fill(x, ty, x + W, ty + 1, HI);
         gg.drawString(this.font, Lang.t(Lang.UI_SELECT_GROUP), x + 6, ty + 4, TITLE, false);
 
-        // panel + bevel
-        gg.fill(x, y, x + W, y + H, STONE);
-        gg.fill(x, y, x + W, y + 1, HI);
-        gg.fill(x, y, x + 1, y + H, HI);
-        gg.fill(x, y + H - 1, x + W, y + H, SH);
-        gg.fill(x + W - 1, y, x + W, y + H, SH);
+        // main panel from atlas (9-slice)
+        P2PGuiTextures.panel(gg, x, y, W, H);
 
         int listTop = y + 8, listBottom = y + H - 30, rowH = 18;
         int listH = listBottom - listTop;

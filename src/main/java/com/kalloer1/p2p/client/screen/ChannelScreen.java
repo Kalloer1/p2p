@@ -73,7 +73,7 @@ public class ChannelScreen extends Screen {
 
     private final Set<Integer> openGroups = new HashSet<>();
     private EditBox searchBox;
-    private Button redstoneBtn, distBtn, rateDown, rateUp, speedDown, speedUp, groupBtn, bindBtn, deleteBtn, cleanBtn, createCh, createGrp, deleteGrpBtn, prevNet, nextNet, typeBtn, maxRateBtn;
+    private P2PFlatButton redstoneBtn, distBtn, rateDown, rateUp, speedDown, speedUp, groupBtn, bindBtn, deleteBtn, cleanBtn, createCh, createGrp, deleteGrpBtn, prevNet, nextNet, typeBtn, maxRateBtn;
     private EditBox rateEdit, speedEdit;
     private boolean rateFocusPrev = false, speedFocusPrev = false;
 
@@ -115,10 +115,10 @@ public class ChannelScreen extends Screen {
         int rx = leftPos + 148, rw = W - 148 - 4;
         int btnGap = 4;
         int btnW = (rw - 3 * btnGap) / 4;              // row: 红石/分配/分组/清理空气 — four unified buttons
-        redstoneBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_REDSTONE, redstoneLabel(Channel.RedstoneMode.ALWAYS)), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_REDSTONE, 0)).bounds(rx, topPos + 30, btnW, 18)));
-        distBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_DISTRIBUTION, distLabel(Channel.Distribution.ROUND_ROBIN)), b -> sendAction(ChannelActionC2SPacket.Action.CYCLE_DISTRIBUTION, 0)).bounds(rx + btnW + btnGap, topPos + 30, btnW, 18)));
-        groupBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_GROUP, groupLabel(-1)), b -> openGroupSelect()).bounds(rx + 2 * (btnW + btnGap), topPos + 30, btnW, 18)));
-        cleanBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_CLEAN_AIR), b -> sendAction(ChannelActionC2SPacket.Action.CLEAN_AIR, 0)).bounds(rx + 3 * (btnW + btnGap), topPos + 30, btnW, 18)));
+        redstoneBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_REDSTONE, redstoneLabel(Channel.RedstoneMode.ALWAYS)), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_REDSTONE, 0)).bounds(rx, topPos + 30, btnW, 18)));
+        distBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DISTRIBUTION, distLabel(Channel.Distribution.ROUND_ROBIN)), b -> sendAction(ChannelActionC2SPacket.Action.CYCLE_DISTRIBUTION, 0)).bounds(rx + btnW + btnGap, topPos + 30, btnW, 18)));
+        groupBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_GROUP, groupLabel(-1)), b -> openGroupSelect()).bounds(rx + 2 * (btnW + btnGap), topPos + 30, btnW, 18)));
+        cleanBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_CLEAN_AIR), b -> sendAction(ChannelActionC2SPacket.Action.CLEAN_AIR, 0)).bounds(rx + 3 * (btnW + btnGap), topPos + 30, btnW, 18)));
 
         // rate: editable value + fine step + unit
         rateEdit = new EditBox(this.font, rx + 24, topPos + 48, 46, 14, Component.literal(""));
@@ -126,9 +126,9 @@ public class ChannelScreen extends Screen {
         rateEdit.setBordered(true);
         rateEdit.setTextColor(0xFFFFFFFF);
         addRenderableWidget(rateEdit);
-        rateDown = addRenderableWidget(new FlatButton(Button.builder(Component.literal("-"), b -> stepRate(-16)).bounds(rx + 74, topPos + 48, 18, 16)));
-        rateUp = addRenderableWidget(new FlatButton(Button.builder(Component.literal("+"), b -> stepRate(16)).bounds(rx + 92, topPos + 48, 18, 16)));
-        maxRateBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_RATE_MAX), b -> sendAction(ChannelActionC2SPacket.Action.SET_RATE, ChannelActionC2SPacket.RATE_MAX)).bounds(rx + 112, topPos + 48, 34, 16)));
+        rateDown = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("-"), b -> stepRate(-16)).bounds(rx + 74, topPos + 48, 18, 16)));
+        rateUp = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("+"), b -> stepRate(16)).bounds(rx + 92, topPos + 48, 18, 16)));
+        maxRateBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_RATE_MAX), b -> sendAction(ChannelActionC2SPacket.Action.SET_RATE, ChannelActionC2SPacket.RATE_MAX)).bounds(rx + 112, topPos + 48, 34, 16)));
 
         // speed (throttle): how many ticks between passes
         speedEdit = new EditBox(this.font, rx + 24, topPos + 66, 46, 14, Component.literal(""));
@@ -136,18 +136,18 @@ public class ChannelScreen extends Screen {
         speedEdit.setBordered(true);
         speedEdit.setTextColor(0xFFFFFFFF);
         addRenderableWidget(speedEdit);
-        speedDown = addRenderableWidget(new FlatButton(Button.builder(Component.literal("-"), b -> stepSpeed(-1)).bounds(rx + 74, topPos + 66, 18, 16)));
-        speedUp = addRenderableWidget(new FlatButton(Button.builder(Component.literal("+"), b -> stepSpeed(1)).bounds(rx + 92, topPos + 66, 18, 16)));
+        speedDown = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("-"), b -> stepSpeed(-1)).bounds(rx + 74, topPos + 66, 18, 16)));
+        speedUp = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("+"), b -> stepSpeed(1)).bounds(rx + 92, topPos + 66, 18, 16)));
 
-        bindBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_BIND_CHANNEL), b -> {
+        bindBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_BIND_CHANNEL), b -> {
             if (selectedChannel >= 0) ModMessages.INSTANCE.sendToServer(new SetBindChannelC2SPacket(selectedChannel));
         }).bounds(rx, topPos + H - 22, (rw - 8) / 2, 18)));
-        deleteBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_DELETE_CHANNEL).withStyle(ChatFormatting.RED), b -> sendAction(ChannelActionC2SPacket.Action.DELETE, 0)).bounds(rx + (rw - 8) / 2 + 8, topPos + H - 22, (rw - 8) / 2, 18)));
+        deleteBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DELETE_CHANNEL).withStyle(ChatFormatting.RED), b -> sendAction(ChannelActionC2SPacket.Action.DELETE, 0)).bounds(rx + (rw - 8) / 2 + 8, topPos + H - 22, (rw - 8) / 2, 18)));
 
         int btnL = (lw - 2 * btnGap) / 3;              // bottom-left row: 新建频道/新建组/删除组 — unified size
-        createCh = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_NEW_CHANNEL), b -> minecraft.setScreen(new ChannelCreateScreen(this))).bounds(lx, topPos + H - 22, btnL, 18)));
-        createGrp = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_NEW_GROUP), b -> minecraft.setScreen(new NameInputScreen(this, Lang.t(Lang.UI_NEW_GROUP), "", 1, -1, null))).bounds(lx + btnL + btnGap, topPos + H - 22, btnL, 18)));
-        deleteGrpBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_DELETE_GROUP).withStyle(ChatFormatting.RED), b -> {
+        createCh = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_NEW_CHANNEL), b -> minecraft.setScreen(new ChannelCreateScreen(this))).bounds(lx, topPos + H - 22, btnL, 18)));
+        createGrp = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_NEW_GROUP), b -> minecraft.setScreen(new NameInputScreen(this, Lang.t(Lang.UI_NEW_GROUP), "", 1, -1, null))).bounds(lx + btnL + btnGap, topPos + H - 22, btnL, 18)));
+        deleteGrpBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DELETE_GROUP).withStyle(ChatFormatting.RED), b -> {
             int targetGrp = selectedGroup;
             if (targetGrp < 0) {
                 Channel gc = findChannel(selectedChannel);
@@ -160,10 +160,10 @@ public class ChannelScreen extends Screen {
             }
         }).bounds(lx + 2 * (btnL + btnGap), topPos + H - 22, btnL, 18)));
 
-        prevNet = addRenderableWidget(new FlatButton(Button.builder(Component.literal("<"), b -> pageNet(-1)).bounds(leftPos + W - 56, topPos - 16 + 1, 18, 14)));
-        nextNet = addRenderableWidget(new FlatButton(Button.builder(Component.literal(">"), b -> pageNet(1)).bounds(leftPos + W - 36, topPos - 16 + 1, 18, 14)));
+        prevNet = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("<"), b -> pageNet(-1)).bounds(leftPos + W - 56, topPos - 16 + 1, 18, 14)));
+        nextNet = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal(">"), b -> pageNet(1)).bounds(leftPos + W - 36, topPos - 16 + 1, 18, 14)));
 
-        typeBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_MEDIUM), b -> cycleType()).bounds(rx + rw - 70, topPos + 10, 66, 14)));
+        typeBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_MEDIUM), b -> cycleType()).bounds(rx + rw - 70, topPos + 10, 66, 14)));
 
         ModMessages.INSTANCE.sendToServer(new RequestChannelsC2SPacket());
     }
@@ -701,29 +701,6 @@ public class ChannelScreen extends Screen {
         gg.fill(bx, by + bh - 1, bx + bw, by + bh, SH);
         gg.fill(bx + bw - 1, by, bx + bw, by + bh, SH);
         gg.drawString(this.font, Component.literal(label), bx + (bw - this.font.width(label)) / 2, by + 4, 0xFFc03030, false);
-    }
-
-    /**
-     * Vanilla-style grey button (same chrome as Sky Logistics' ConfigPanel buttons):
-     * dark outline + #C6C6C6 face + white top/left highlight + dark bottom/right shadow,
-     * black text. Hover lightens the face; disabled falls back to a flat dark grey.
-     */
-    private static class FlatButton extends Button {
-        FlatButton(Builder builder) {
-            super(builder);
-        }
-
-        @Override
-        protected void renderWidget(GuiGraphics gg, int mx, int my, float pt) {
-            int x = getX(), y = getY(), w = getWidth(), h = getHeight();
-            P2PGuiTextures.button(gg, x, y, w, h, isHoveredOrFocused(), active);
-            Component msg = getMessage();
-            if (msg != null) {
-                Font f = Minecraft.getInstance().font;
-                gg.drawString(f, msg, x + (w - f.width(msg)) / 2,
-                        y + (h - 8) / 2, active ? 0xFF000000 : 0xFF707070, false);
-            }
-        }
     }
 
     // ============================================================ helpers

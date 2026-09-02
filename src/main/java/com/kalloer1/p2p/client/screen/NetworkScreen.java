@@ -46,8 +46,8 @@ public class NetworkScreen extends Screen {
         leftPos = (this.width - W) / 2;
         topPos = (this.height - H) / 2;
         load();
-        openBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_ENTER_NETWORK), b -> enter()).bounds(leftPos + W - 180, topPos + H - 24, 84, 20).build());
-        cancelBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_BACK), b -> minecraft.setScreen(new ChannelScreen())).bounds(leftPos + W - 92, topPos + H - 24, 84, 20).build());
+        openBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_ENTER_NETWORK), b -> enter()).bounds(leftPos + W - 180, topPos + H - 24, 84, 20)));
+        cancelBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_BACK), b -> minecraft.setScreen(new ChannelScreen())).bounds(leftPos + W - 92, topPos + H - 24, 84, 20)));
         ModMessages.INSTANCE.sendToServer(new RequestChannelsC2SPacket());
     }
 
@@ -87,12 +87,8 @@ public class NetworkScreen extends Screen {
         gg.drawString(this.font, Lang.t(Lang.UI_SELECT_NETWORK), x + 6, ty + 4, TITLE, false);
         gg.drawString(this.font, Lang.t(Lang.UI_SHARE_HINT), x + W / 2 - 84, ty + 4, 0xFFc9c9c9, false);
 
-        // panel + bevel
-        gg.fill(x, y, x + W, y + H, STONE);
-        gg.fill(x, y, x + W, y + 1, HI);
-        gg.fill(x, y, x + 1, y + H, HI);
-        gg.fill(x, y + H - 1, x + W, y + H, SH);
-        gg.fill(x + W - 1, y, x + W, y + H, SH);
+        // main panel from atlas (9-slice)
+        P2PGuiTextures.panel(gg, x, y, W, H);
 
         int listTop = y + 8, listBottom = y + H - 30, rowH = 26;
         int listH = listBottom - listTop;

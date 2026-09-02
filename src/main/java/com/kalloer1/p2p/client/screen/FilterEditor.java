@@ -102,8 +102,8 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     /** 过滤编辑器三个标签页：物品模板 / 标签 / NBT。点击标签按钮切换。 */
     private enum Page { ITEM, TAG, NBT }
     private Page page = Page.ITEM;
-    private FlatButton btnItem, btnTag, btnNbt;   // 顶部三个标签页
-    private FlatButton modeBtn, nbtBtn, addTagBtn; // 各页控件（按页显隐）
+    private P2PFlatButton btnItem, btnTag, btnNbt;   // 顶部三个标签页
+    private P2PFlatButton modeBtn, nbtBtn, addTagBtn; // 各页控件（按页显隐）
 
     public FilterEditor(Screen parent, int channelId, ChannelType type, Member member) {
         super(new FilterMenu(Minecraft.getInstance().player.getInventory(), type),
@@ -181,25 +181,25 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         int x = leftPos, y = topPos;
         syncGhost();
 
-        addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_CANCEL), b -> onClose())
+        addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_CANCEL), b -> onClose())
                 .bounds(x + 88, y + 4, 38, 14)));
-        addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_DONE).withStyle(ChatFormatting.GREEN), b -> finish())
+        addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DONE).withStyle(ChatFormatting.GREEN), b -> finish())
                 .bounds(x + 130, y + 4, 38, 14)));
 
         // 三个标签页：物品模板 / 标签 / NBT
-        btnItem = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_TAB_ITEM), b -> setPage(Page.ITEM)).bounds(x + 4, y + ROW_TAB, 54, 16)));
-        btnTag  = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_TAB_TAG), b -> setPage(Page.TAG)).bounds(x + 60, y + ROW_TAB, 54, 16)));
-        btnNbt  = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_TAB_NBT), b -> setPage(Page.NBT)).bounds(x + 116, y + ROW_TAB, 54, 16)));
+        btnItem = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_TAB_ITEM), b -> setPage(Page.ITEM)).bounds(x + 4, y + ROW_TAB, 54, 16)));
+        btnTag  = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_TAB_TAG), b -> setPage(Page.TAG)).bounds(x + 60, y + ROW_TAB, 54, 16)));
+        btnNbt  = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_TAB_NBT), b -> setPage(Page.NBT)).bounds(x + 116, y + ROW_TAB, 54, 16)));
 
         if (chType == ChannelType.ITEM) {
             // whitelist/blacklist toggle (governs items AND tags) — shown on ITEM and TAG pages
-            modeBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_MODE, modeLabel()), b -> {
+            modeBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_MODE, modeLabel()), b -> {
                 mode = (mode == Filter.Mode.WHITELIST ? Filter.Mode.BLACKLIST : Filter.Mode.WHITELIST);
                 b.setMessage(Lang.t(Lang.UI_MODE, modeLabel()));
             }).bounds(x + 8, y + 140, 158, 16)));
 
             // strict-NBT toggle — shown on ITEM and NBT pages
-            nbtBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_NBT_SWITCH, nbtLabel()), b -> {
+            nbtBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_NBT_SWITCH, nbtLabel()), b -> {
                 matchNBT = !matchNBT;
                 b.setMessage(Lang.t(Lang.UI_NBT_SWITCH, nbtLabel()));
             }).bounds(x + 92, y + 124, 76, 16)));
@@ -209,7 +209,7 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
             tagBox.setMaxLength(64);
             tagBox.setHint(Lang.t(Lang.UI_TAG_PLACEHOLDER));
             addRenderableWidget(tagBox);
-            addTagBtn = addRenderableWidget(new FlatButton(Button.builder(Lang.t(Lang.UI_ADD_TAG), b -> addTagFromBox())
+            addTagBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_ADD_TAG), b -> addTagFromBox())
                     .bounds(x + 118, y + 123, 50, 16)));
 
             // NBT page: a large multi-line editor (only drawn on the NBT page)
@@ -457,36 +457,6 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
             return;
         }
         addMarker(slot.getItem());
-    }
-
-    /** Vanilla-style grey button (same chrome as Sky Logistics' ConfigPanel buttons). */
-    private static class FlatButton extends Button {
-        FlatButton(Builder builder) {
-            super(builder);
-        }
-
-        @Override
-        protected void renderWidget(GuiGraphics gg, int mx, int my, float pt) {
-            int x = getX(), y = getY(), w = getWidth(), h = getHeight();
-            Component msg = getMessage();
-            if (active) {
-                int face = isHoveredOrFocused() ? 0xFFd8d8d8 : 0xFFc6c6c6;
-                gg.fill(x, y, x + w, y + h, 0xFF373737);
-                gg.fill(x + 1, y + 1, x + w - 1, y + h - 1, face);
-                gg.fill(x + 1, y + 1, x + w - 1, y + 2, 0xFFFFFFFF);
-                gg.fill(x + 1, y + 1, x + 2, y + h - 1, 0xFFFFFFFF);
-                gg.fill(x + 1, y + h - 2, x + w - 1, y + h - 1, 0xFF555555);
-                gg.fill(x + w - 2, y + 1, x + w - 1, y + h - 1, 0xFF555555);
-            } else {
-                gg.fill(x, y, x + w, y + h, 0xFF373737);
-                gg.fill(x + 1, y + 1, x + w - 1, y + h - 1, 0xFF8b8b8b);
-            }
-            if (msg != null) {
-                Font f = Minecraft.getInstance().font;
-                gg.drawString(f, msg, x + (w - f.width(msg)) / 2,
-                        y + (h - 8) / 2, active ? 0xFF000000 : 0xFF707070, false);
-            }
-        }
     }
 
     /**

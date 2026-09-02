@@ -53,8 +53,8 @@ public class NameInputScreen extends Screen {
         box.setValue(initial);
         box.setFocused(true);
         addRenderableWidget(box);
-        okBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_OK), b -> confirm()).bounds(leftPos + W - 184, topPos + H - 26, 84, 20).build());
-        cancelBtn = addRenderableWidget(Button.builder(Lang.t(Lang.UI_CANCEL), b -> minecraft.setScreen(parent)).bounds(leftPos + W - 92, topPos + H - 26, 84, 20).build());
+        okBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_OK), b -> confirm()).bounds(leftPos + W - 184, topPos + H - 26, 84, 20)));
+        cancelBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_CANCEL), b -> minecraft.setScreen(parent)).bounds(leftPos + W - 92, topPos + H - 26, 84, 20)));
     }
 
     @Override
@@ -66,11 +66,8 @@ public class NameInputScreen extends Screen {
     public void renderBackground(GuiGraphics gg) {
         int x = leftPos, y = topPos;
         gg.fill(0, 0, this.width, this.height, 0x66000000);
-        gg.fill(x, y, x + W, y + H, STONE);
-        gg.fill(x, y, x + W, y + 1, HI);
-        gg.fill(x, y, x + 1, y + H, HI);
-        gg.fill(x, y + H - 1, x + W, y + H, SH);
-        gg.fill(x + W - 1, y, x + W, y + H, SH);
+        // main panel from atlas (9-slice)
+        P2PGuiTextures.panel(gg, x, y, W, H);
         // header strip
         gg.fill(x, y, x + W, y + 17, TAB);
         gg.fill(x, y, x + W, y + 1, HI);
