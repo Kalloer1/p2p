@@ -9,6 +9,7 @@ import com.kalloer1.p2p.channel.Member;
 import com.kalloer1.p2p.channel.Network;
 import com.kalloer1.p2p.channel.Role;
 import com.kalloer1.p2p.client.ClientChannelCache;
+import com.kalloer1.p2p.client.screen.P2PGuiTextures;
 import com.kalloer1.p2p.network.ChannelActionC2SPacket;
 import com.kalloer1.p2p.network.ModMessages;
 import com.kalloer1.p2p.network.RequestChannelsC2SPacket;
@@ -55,7 +56,6 @@ public class ChannelScreen extends Screen {
     private static final int STONE = 0xFFC6C6C6, HI = 0xFFFFFFFF, SH = 0xFF555555;
     private static final int LEFT_BG = 0xFFbdbdbd, RIGHT_BG = 0xFFcfcfcf, SEL = 0xFFe8e8e8, GRP_BG = 0xFFa6a6a6, TAB = 0xFF2f2f2f;
     private static final int INK = 0xFF2b2b2b, INK_DIM = 0xFF5a5a5a, TITLE = 0xFFe6e6e6;
-    private static final int ITEM_C = 0x8a5a2b, FLUID_C = 0x2f5aa8, ENERGY_C = 0x9c3327;
     private static final int IN_C = 0xFFd93a3a, OUT_C = 0xFF3a7ad9; // INPUT=red, OUTPUT=blue
 
     private int leftPos, topPos;
@@ -264,12 +264,8 @@ public class ChannelScreen extends Screen {
             gg.drawString(this.font, Component.literal("▾"), nmX + this.font.width(nm) + 4, ty + 4, 0xFFc9c9c9, false);
             netNameHitX = nmX; netNameHitW = this.font.width(nm) + 12; netNameHitValid = true;
         } else netNameHitValid = false;
-        // panel + bevel
-        gg.fill(x, y, x + W, y + H, STONE);
-        gg.fill(x, y, x + W, y + 1, HI);
-        gg.fill(x, y, x + 1, y + H, HI);
-        gg.fill(x, y + H - 1, x + W, y + H, SH);
-        gg.fill(x + W - 1, y, x + W, y + H, SH);
+        // main panel from atlas (9-slice)
+        P2PGuiTextures.panel(gg, x, y, W, H);
 
         drawLeft(gg);
         drawRight(gg);
@@ -720,19 +716,8 @@ public class ChannelScreen extends Screen {
         @Override
         protected void renderWidget(GuiGraphics gg, int mx, int my, float pt) {
             int x = getX(), y = getY(), w = getWidth(), h = getHeight();
+            P2PGuiTextures.button(gg, x, y, w, h, isHoveredOrFocused(), active);
             Component msg = getMessage();
-            if (active) {
-                int face = isHoveredOrFocused() ? 0xFFd8d8d8 : 0xFFc6c6c6;
-                gg.fill(x, y, x + w, y + h, 0xFF373737);            // dark outline
-                gg.fill(x + 1, y + 1, x + w - 1, y + h - 1, face);  // grey face
-                gg.fill(x + 1, y + 1, x + w - 1, y + 2, 0xFFFFFFFF);   // top highlight
-                gg.fill(x + 1, y + 1, x + 2, y + h - 1, 0xFFFFFFFF);   // left highlight
-                gg.fill(x + 1, y + h - 2, x + w - 1, y + h - 1, 0xFF555555); // bottom shadow
-                gg.fill(x + w - 2, y + 1, x + w - 1, y + h - 1, 0xFF555555); // right shadow
-            } else {
-                gg.fill(x, y, x + w, y + h, 0xFF373737);
-                gg.fill(x + 1, y + 1, x + w - 1, y + h - 1, 0xFF8b8b8b);   // disabled face
-            }
             if (msg != null) {
                 Font f = Minecraft.getInstance().font;
                 gg.drawString(f, msg, x + (w - f.width(msg)) / 2,
@@ -768,11 +753,11 @@ public class ChannelScreen extends Screen {
     }
 
     private static int typeColor(ChannelType t) {
-        return t == ChannelType.ITEM ? ITEM_C : t == ChannelType.FLUID ? FLUID_C : ENERGY_C;
+        return MediumRegistry.colorOf(t);
     }
 
     private static Component typeLabel(ChannelType t) {
-        return t == ChannelType.ITEM ? Lang.t(Lang.UI_TYPE_ITEM) : t == ChannelType.FLUID ? Lang.t(Lang.UI_TYPE_FLUID) : Lang.t(Lang.UI_TYPE_ENERGY);
+        return MediumRegistry.nameOf(t);
     }
 
     private static Component distLabel(Channel.Distribution d) {
