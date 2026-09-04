@@ -9,6 +9,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
@@ -246,14 +247,16 @@ public class ChannelManager extends SavedData {
         }
         ResourceLocation dim = level.dimension().location();
         String key = dim + "|" + pos.getX() + "," + pos.getY() + "," + pos.getZ() + "|" + face.getName();
+        Block bound = level.getBlockState(pos).getBlock();
         P2P.LOGGER.info("[p2p] toggleEndpoint: channel={} pos={} face={} role={} block={} dim={}",
-                channelId, pos, face, role, level.getBlockState(pos).getBlock(), dim);
+                channelId, pos, face, role, bound, dim);
 
         boolean removed = channel.members.removeIf(m -> m.key().equals(key));
         if (removed) {
             player.displayClientMessage(Lang.t(Lang.MSG_ENDPOINT_REMOVED, channelId).withStyle(ChatFormatting.YELLOW), true);
         } else {
-            channel.members.add(new Member(dim, pos, face, role, null, null));
+            // 绑定这一刻区块必定已加载，把方块 id 一起记下来，GUI 才能给跨维度端点画图标
+            channel.members.add(new Member(dim, pos, face, role, null, null, 0, BuiltInRegistries.BLOCK.getKey(bound)));
             Component roleStr = role == Role.INPUT ? Lang.t(Lang.MSG_ROLE_IN) : Lang.t(Lang.MSG_ROLE_OUT);
             player.displayClientMessage(Lang.t(Lang.MSG_ENDPOINT_ADDED, channelId, roleStr).withStyle(ChatFormatting.GREEN), true);
         }
@@ -279,6 +282,8 @@ public class ChannelManager extends SavedData {
             return 0;
         }
         Block target = level.getBlockState(origin).getBlock();
+        // 链式绑定的 BFS 只扩散到同类型方块，所以整条链共用一个方块 id
+        ResourceLocation targetId = BuiltInRegistries.BLOCK.getKey(target);
         ResourceLocation dim = level.dimension().location();
         P2P.LOGGER.info("[p2p] bindChain: origin={} face={} role={} targetBlock={} channel={}", origin, face, role, target, channelId);
         final int CAP = 64, MAX_NODES = 4096;
@@ -295,7 +300,7 @@ public class ChannelManager extends SavedData {
             // was not re-added, so chaining onto a neighbour silently unbound already-bound machines).
             boolean existed = channel.members.stream().anyMatch(m -> m.key().equals(key));
             if (!existed) {
-                channel.members.add(new Member(dim, p, face, role, null, null));
+                channel.members.add(new Member(dim, p, face, role, null, null, 0, targetId));
                 added++;
             }
             for (Direction d : Direction.values()) {

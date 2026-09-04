@@ -23,6 +23,7 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
@@ -454,7 +455,11 @@ public class ChannelScreen extends Screen {
             // subtle row separator
             gg.fill(rx + 2, ry + rowH - 1, rx + rw - 2, ry + rowH, P2PGuiTextures.SEP);
 
-            // 方块图标：坐标节点旁显示该位置方块，方便辨认（仅同维度 / 世界已加载时可查）
+            // 方块图标：坐标节点旁显示该位置方块，方便辨认。
+            // 同维度且区块已加载时优先实时取（pick-stack 能还原模组方块的变体/染色）；
+            // 否则退回绑定时记录的 Member.blockId——这样跨维度 / 区块未加载的端点也有图标。
+            ItemStack icon = ItemStack.EMPTY;
+            Block iconBlock = null;
             if (this.minecraft.level != null && this.minecraft.level.dimension().location().equals(m.dim)) {
                 BlockState st = this.minecraft.level.getBlockState(m.pos);
                 Block blk = st.getBlock();
@@ -465,9 +470,21 @@ public class ChannelScreen extends Screen {
                             new BlockHitResult(Vec3.atCenterOf(m.pos), m.face, m.pos, false),
                             this.minecraft.level, m.pos, this.minecraft.player);
                     if (pick.isEmpty()) pick = new ItemStack(blk.asItem());
-                    gg.renderItem(pick, rx + colIconX, ry + 0);
-                    blockHits.add(new BlockHit(i, rx + colIconX, ry, 16, 16, blk));
+                    icon = pick;
+                    iconBlock = blk;
                 }
+            }
+            if (icon.isEmpty() && m.blockId != null) {
+                // BuiltInRegistries.BLOCK 是 DefaultedRegistry：查不到返回 AIR 而不是 null
+                Block blk = BuiltInRegistries.BLOCK.get(m.blockId);
+                if (blk != Blocks.AIR && blk.asItem() != Items.AIR) {
+                    icon = new ItemStack(blk.asItem());
+                    iconBlock = blk;
+                }
+            }
+            if (!icon.isEmpty()) {
+                gg.renderItem(icon, rx + colIconX, ry + 0);
+                blockHits.add(new BlockHit(i, rx + colIconX, ry, 16, 16, iconBlock));
             }
 
             // dimension: colour pill + short label (hover shows the full dimension id)

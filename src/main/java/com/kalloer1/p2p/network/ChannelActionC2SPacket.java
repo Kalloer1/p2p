@@ -176,7 +176,7 @@ public class ChannelActionC2SPacket {
                     for (int i = 0; i < c.members.size(); i++) {
                         Member m = c.members.get(i);
                         if (m.key().equals(memberKey))
-                            c.members.set(i, new Member(m.dim, m.pos, m.face, newRole, m.extractFilter, m.insertFilter, m.priority));
+                            c.members.set(i, new Member(m.dim, m.pos, m.face, newRole, m.extractFilter, m.insertFilter, m.priority, m.blockId));
                     }
                 }
             }
