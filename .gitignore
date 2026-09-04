@@ -8,3 +8,13 @@ out/
 *.iml
 # OS
 Thumbs.db
+# abandoned GUI prototype line (code-drawn UI replaced the atlas; cleaned 2026-09-04)
+/_tmp/
+/gui/
+/META-INF/
+/p2p_contact_sheet.png
+/p2p_gui_prototype.html
+/p2p_gui_v2.html
+/design_p2p_ui_v2.html
+/p2p_ui_design.md
+/s

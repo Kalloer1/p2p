@@ -1,30 +1,20 @@
 package com.kalloer1.p2p.client.screen;
 
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.resources.ResourceLocation;
 
 /**
- * Single-atlas UV registry for P2P GUI elements.
- * Layout (256x256):
- *   panel     u=  2 v=  2  20x20 border=4
- *   field     u= 26 v=  2  20x20 border=4
- *   btn       u= 50 v=  2  20x20 border=4
- *   btn_h     u= 74 v=  2  20x20 border=4
- *   btn_d     u= 98 v=  2  20x20 border=4
- *   tab       u=122 v=  2  20x20 border=4
- *   slot      u=146 v=  2  18x18 fixed
- *   scroll    u=168 v=  2   6x16 fixed
- *   toggle_on u=178 v=  2  44x20 fixed
- *   toggle_off u= 2 v= 26  44x20 fixed
- *   check     u= 50 v=26  14x14 fixed
- *   check_on  u= 68 v=26  14x14 fixed
+ * Runtime-drawn chrome for every P2P GUI.
+ *
+ * There is no custom texture atlas any more: panels, buttons, fields, tabs, slots, toggles and
+ * checkboxes are composed from flat fills plus 1px bevels. That keeps the mod free of GUI image
+ * assets and immune to atlas-size / resource-pack mismatches.
+ *
+ * The {@link Rgn} constants are kept as pure geometry (default widget sizes) so existing call
+ * sites keep compiling; their u/v are unused.
  */
 public final class P2PGuiTextures {
 
-    public static final ResourceLocation ATLAS = ResourceLocation.fromNamespaceAndPath("p2p", "textures/gui/p2p.png");
-    public static final int ATLAS_W = 256;
-    public static final int ATLAS_H = 256;
-
+    /** Widget geometry. {@code border > 0} means the widget stretches to any size. */
     public static final class Rgn {
         public final int u, v, w, h, border;
         public Rgn(int u, int v, int w, int h, int border) {
@@ -33,18 +23,18 @@ public final class P2PGuiTextures {
         public boolean nineSlice() { return border > 0; }
     }
 
-    public static final Rgn PANEL      = new Rgn(2, 2, 20, 20, 4);
-    public static final Rgn FIELD      = new Rgn(26, 2, 20, 20, 4);
-    public static final Rgn BTN        = new Rgn(50, 2, 20, 20, 4);
-    public static final Rgn BTN_HOVER  = new Rgn(74, 2, 20, 20, 4);
-    public static final Rgn BTN_DISABLED = new Rgn(98, 2, 20, 20, 4);
-    public static final Rgn TAB        = new Rgn(122, 2, 20, 20, 4);
-    public static final Rgn SLOT       = new Rgn(146, 2, 18, 18, 0);
-    public static final Rgn SCROLL     = new Rgn(168, 2, 6, 16, 0);
-    public static final Rgn TOGGLE_ON  = new Rgn(178, 2, 44, 20, 0);
-    public static final Rgn TOGGLE_OFF = new Rgn(2, 26, 44, 20, 0);
-    public static final Rgn CHECK      = new Rgn(50, 26, 14, 14, 0);
-    public static final Rgn CHECK_ON   = new Rgn(68, 26, 14, 14, 0);
+    public static final Rgn PANEL        = new Rgn(0, 0, 20, 20, 4);
+    public static final Rgn FIELD        = new Rgn(0, 0, 20, 20, 4);
+    public static final Rgn BTN          = new Rgn(0, 0, 20, 20, 4);
+    public static final Rgn BTN_HOVER    = new Rgn(0, 0, 20, 20, 4);
+    public static final Rgn BTN_DISABLED = new Rgn(0, 0, 20, 20, 4);
+    public static final Rgn TAB          = new Rgn(0, 0, 20, 20, 4);
+    public static final Rgn SLOT         = new Rgn(0, 0, 18, 18, 0);
+    public static final Rgn SCROLL       = new Rgn(0, 0, 6, 16, 0);
+    public static final Rgn TOGGLE_ON    = new Rgn(0, 0, 44, 20, 0);
+    public static final Rgn TOGGLE_OFF   = new Rgn(0, 0, 44, 20, 0);
+    public static final Rgn CHECK        = new Rgn(0, 0, 14, 14, 0);
+    public static final Rgn CHECK_ON     = new Rgn(0, 0, 14, 14, 0);
 
     // ---- shared dark-theme palette (ARGB) ----
     // Single source of truth for every screen's chrome so the whole mod stays consistent.
@@ -64,65 +54,109 @@ public final class P2PGuiTextures {
     public static final int DANGER    = 0xFFE06B6B;  // destructive text
     public static final int OK_GREEN  = 0xFF5FC35F;  // positive text
 
-    /** Fixed-size blit. */
-    public static void blit(GuiGraphics gg, int x, int y, Rgn r) {
-        gg.blit(ATLAS, x, y, r.u, r.v, r.w, r.h, ATLAS_W, ATLAS_H);
+    // ---- fills that used to come from the atlas ----
+    public static final int PANEL_BG  = 0xFF23272E;  // window body
+    public static final int FIELD_BG  = 0xFF1A1D22;  // recessed input / slot well
+    public static final int BTN_HI    = 0xFF4A5364;  // hovered button fill
+    public static final int BTN_OFF   = 0xFF2A2F37;  // disabled button fill
+    public static final int BTN_SEL   = 0xFF3D5C8C;  // selected button / active tab fill
+    public static final int BTN_SEL_HI= 0xFF4E74AD;  // selected + hovered
+    public static final int ACCENT     = 0xFF8FB8F0; // selection accent (tab underline)
+    public static final int KNOB      = 0xFF6B7482;  // scrollbar / toggle knob
+
+    /** Raised bevel: light top/left, dark bottom/right, over the given fill. */
+    private static void raised(GuiGraphics gg, int x, int y, int w, int h, int fill) {
+        if (w <= 0 || h <= 0) return;
+        gg.fill(x, y, x + w, y + h, fill);
+        gg.fill(x, y, x + w, y + 1, FAUX_HI);
+        gg.fill(x, y, x + 1, y + h, FAUX_HI);
+        gg.fill(x, y + h - 1, x + w, y + h, FAUX_SH);
+        gg.fill(x + w - 1, y, x + w, y + h, FAUX_SH);
     }
 
-    /** Manual 9-slice blit using the region's border. */
+    /** Recessed bevel: dark top/left, light bottom/right, over the given fill. */
+    private static void inset(GuiGraphics gg, int x, int y, int w, int h, int fill) {
+        if (w <= 0 || h <= 0) return;
+        gg.fill(x, y, x + w, y + h, fill);
+        gg.fill(x, y, x + w, y + 1, FAUX_SH);
+        gg.fill(x, y, x + 1, y + h, FAUX_SH);
+        gg.fill(x, y + h - 1, x + w, y + h, FAUX_HI);
+        gg.fill(x + w - 1, y, x + w, y + h, FAUX_HI);
+    }
+
+    /** Draw a widget at its natural size. */
+    public static void blit(GuiGraphics gg, int x, int y, Rgn r) {
+        blit9(gg, x, y, r.w, r.h, r);
+    }
+
+    /** Stretchable widget draw; kept named blit9 so existing call sites are unchanged. */
     public static void blit9(GuiGraphics gg, int x, int y, int w, int h, Rgn r) {
-        if (!r.nineSlice()) {
-            blit(gg, x, y, r);
+        if (r == FIELD || r == SLOT) inset(gg, x, y, w, h, FIELD_BG);
+        else if (r == PANEL) raised(gg, x, y, w, h, PANEL_BG);
+        else if (r == TAB) raised(gg, x, y, w, h, TAB_BG);
+        else if (r == BTN_HOVER) raised(gg, x, y, w, h, BTN_HI);
+        else if (r == BTN_DISABLED) raised(gg, x, y, w, h, BTN_OFF);
+        else raised(gg, x, y, w, h, FAUX_BTN);
+    }
+
+    /** Convenience: draw the main window panel. */
+    public static void panel(GuiGraphics gg, int x, int y, int w, int h) {
+        raised(gg, x, y, w, h, PANEL_BG);
+    }
+
+    /** Convenience: draw a button in the state given. */
+    public static void button(GuiGraphics gg, int x, int y, int w, int h, boolean hovered, boolean active) {
+        button(gg, x, y, w, h, hovered, active, false);
+    }
+
+    /**
+     * Button with an explicit selected state, for tabs and grouped toggles. The three states are kept
+     * clearly distinct: unselected = dark fill, hovered = lighter fill + thin accent line,
+     * selected = blue fill + a 2px accent underline (so the state is readable without relying on hue).
+     */
+    public static void button(GuiGraphics gg, int x, int y, int w, int h, boolean hovered, boolean active, boolean selected) {
+        if (!active) {
+            raised(gg, x, y, w, h, BTN_OFF);
             return;
         }
-        int b = r.border;
-        int u = r.u, v = r.v, rw = r.w, rh = r.h;
-        // corners
-        gg.blit(ATLAS, x, y, u, v, b, b, ATLAS_W, ATLAS_H);
-        gg.blit(ATLAS, x + w - b, y, u + rw - b, v, b, b, ATLAS_W, ATLAS_H);
-        gg.blit(ATLAS, x, y + h - b, u, v + rh - b, b, b, ATLAS_W, ATLAS_H);
-        gg.blit(ATLAS, x + w - b, y + h - b, u + rw - b, v + rh - b, b, b, ATLAS_W, ATLAS_H);
-        // edges + center
-        int cw = w - 2 * b;
-        int ch = h - 2 * b;
-        if (cw > 0) {
-            gg.blit(ATLAS, x + b, y, u + b, v, cw, b, ATLAS_W, ATLAS_H);
-            gg.blit(ATLAS, x + b, y + h - b, u + b, v + rh - b, cw, b, ATLAS_W, ATLAS_H);
-        }
-        if (ch > 0) {
-            gg.blit(ATLAS, x, y + b, u, v + b, b, ch, ATLAS_W, ATLAS_H);
-            gg.blit(ATLAS, x + w - b, y + b, u + rw - b, v + b, b, ch, ATLAS_W, ATLAS_H);
-        }
-        if (cw > 0 && ch > 0) {
-            gg.blit(ATLAS, x + b, y + b, u + b, v + b, cw, ch, ATLAS_W, ATLAS_H);
+        if (selected) {
+            raised(gg, x, y, w, h, hovered ? BTN_SEL_HI : BTN_SEL);
+            if (h > 4) gg.fill(x + 1, y + h - 3, x + w - 1, y + h - 1, ACCENT);
+        } else {
+            raised(gg, x, y, w, h, hovered ? BTN_HI : FAUX_BTN);
+            if (hovered && h > 3) gg.fill(x + 1, y + h - 2, x + w - 1, y + h - 1, ACCENT);
         }
     }
 
-    /** Convenience: draw a 9-slice panel. */
-    public static void panel(GuiGraphics gg, int x, int y, int w, int h) {
-        blit9(gg, x, y, w, h, PANEL);
-    }
-
-    /** Convenience: draw a 9-slice button. */
-    public static void button(GuiGraphics gg, int x, int y, int w, int h, boolean hovered, boolean active) {
-        Rgn r = active ? (hovered ? BTN_HOVER : BTN) : BTN_DISABLED;
-        blit9(gg, x, y, w, h, r);
-    }
-
-    /** Convenience: draw a 9-slice input field background. */
+    /** Convenience: draw an input field background. */
     public static void field(GuiGraphics gg, int x, int y, int w, int h) {
-        blit9(gg, x, y, w, h, FIELD);
+        inset(gg, x, y, w, h, FIELD_BG);
     }
 
-    /** Convenience: draw a 9-slice tab. */
+    /** Convenience: draw a tab / header strip. */
     public static void tab(GuiGraphics gg, int x, int y, int w, int h) {
-        blit9(gg, x, y, w, h, TAB);
+        raised(gg, x, y, w, h, TAB_BG);
     }
 
-    public static void slot(GuiGraphics gg, int x, int y) { blit(gg, x, y, SLOT); }
-    public static void scroll(GuiGraphics gg, int x, int y) { blit(gg, x, y, SCROLL); }
-    public static void toggle(GuiGraphics gg, int x, int y, boolean on) { blit(gg, x, y, on ? TOGGLE_ON : TOGGLE_OFF); }
-    public static void check(GuiGraphics gg, int x, int y, boolean on) { blit(gg, x, y, on ? CHECK_ON : CHECK); }
+    public static void slot(GuiGraphics gg, int x, int y) {
+        inset(gg, x, y, SLOT.w, SLOT.h, FIELD_BG);
+    }
+
+    public static void scroll(GuiGraphics gg, int x, int y) {
+        raised(gg, x, y, SCROLL.w, SCROLL.h, KNOB);
+    }
+
+    public static void toggle(GuiGraphics gg, int x, int y, boolean on) {
+        int w = TOGGLE_ON.w, h = TOGGLE_ON.h;
+        inset(gg, x, y, w, h, on ? 0xFF2E4A34 : FIELD_BG);
+        raised(gg, on ? x + w - h : x, y, h, h, on ? OK_GREEN : KNOB);
+    }
+
+    public static void check(GuiGraphics gg, int x, int y, boolean on) {
+        int w = CHECK.w, h = CHECK.h;
+        inset(gg, x, y, w, h, FIELD_BG);
+        if (on) gg.fill(x + 3, y + 3, x + w - 3, y + h - 3, OK_GREEN);
+    }
 
     private P2PGuiTextures() {}
 }

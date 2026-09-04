@@ -14,6 +14,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.renderer.Rect2i;
@@ -73,13 +74,21 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
 
     private static final int STONE = 0xFF2C3138, HI = P2PGuiTextures.FAUX_HI, SH = P2PGuiTextures.FAUX_SH;
 
-    // widget rows inside the inserted blank strip (relative to topPos)
-    private static final int ROW_TAB = 76;        // 标签页按钮行
-    private static final int ROW_CHIPS = 116;     // ITEM 页提示行
+    /**
+     * Vertical layout (relative to topPos). The page content — marker grid / tag list / NBT box — lives in
+     * CONTENT_Y..CONTENT_BOTTOM; the tab row and the per-page controls sit below it, inside the inserted
+     * strip. The rows must never overlap the content region: the tab row used to be drawn *inside* the tag
+     * list / NBT editor rectangle, so those two swallowed every click aimed at the 标签 / NBT tabs.
+     */
+    private static final int CONTENT_Y = 18, CONTENT_BOTTOM = 96;
+    private static final int PANEL_BOTTOM = 98;   // dark panel behind the content region on TAG/NBT pages
+    private static final int ROW_TAB = 100;       // 标签页按钮行
+    private static final int ROW_CTL = 120;       // 各页控件行（NBT 开关 / 标签输入 + 加标签）
+    private static final int ROW_MODE = 140;      // 白名单 / 黑名单
 
     // custom TAG list / NBT box geometry (relative to topPos)
-    private static final int TAG_X = 6, TAG_Y = 18, TAG_W = 164, TAG_LIST_H = 100, TAG_ROW_H = 13;
-    private static final int NBT_X = 6, NBT_Y = 18, NBT_W = 164, NBT_H = 98;
+    private static final int TAG_X = 6, TAG_Y = CONTENT_Y, TAG_W = 164, TAG_LIST_H = CONTENT_BOTTOM - CONTENT_Y, TAG_ROW_H = 13;
+    private static final int NBT_X = 6, NBT_Y = CONTENT_Y, NBT_W = 164, NBT_H = CONTENT_BOTTOM - CONTENT_Y;
 
     private final Screen parent;
     private final int channelId;
@@ -186,31 +195,34 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DONE).withStyle(ChatFormatting.GREEN), b -> finish())
                 .bounds(x + 130, y + 4, 38, 14)));
 
-        // 三个标签页：物品模板 / 标签 / NBT
+        // 三个标签页：物品模板 / 标签 / NBT。说明文字全部放进 tooltip，不再常驻占用界面。
         btnItem = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_TAB_ITEM), b -> setPage(Page.ITEM)).bounds(x + 4, y + ROW_TAB, 54, 16)));
         btnTag  = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_TAB_TAG), b -> setPage(Page.TAG)).bounds(x + 60, y + ROW_TAB, 54, 16)));
         btnNbt  = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_TAB_NBT), b -> setPage(Page.NBT)).bounds(x + 116, y + ROW_TAB, 54, 16)));
+        btnItem.setTooltip(Tooltip.create(Lang.t(chType == ChannelType.FLUID ? Lang.UI_FLUID_HINT : Lang.UI_ITEM_HINT)));
+        btnTag.setTooltip(Tooltip.create(Lang.t(Lang.UI_TAG_TIP)));
+        btnNbt.setTooltip(Tooltip.create(Lang.t(Lang.UI_NBT_REGEX_HINT)));
 
         if (chType == ChannelType.ITEM) {
             // whitelist/blacklist toggle (governs items AND tags) — shown on ITEM and TAG pages
             modeBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_MODE, modeLabel()), b -> {
                 mode = (mode == Filter.Mode.WHITELIST ? Filter.Mode.BLACKLIST : Filter.Mode.WHITELIST);
                 b.setMessage(Lang.t(Lang.UI_MODE, modeLabel()));
-            }).bounds(x + 8, y + 140, 158, 16)));
+            }).bounds(x + 8, y + ROW_MODE, 158, 16)));
 
             // strict-NBT toggle — shown on ITEM and NBT pages
             nbtBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_NBT_SWITCH, nbtLabel()), b -> {
                 matchNBT = !matchNBT;
                 b.setMessage(Lang.t(Lang.UI_NBT_SWITCH, nbtLabel()));
-            }).bounds(x + 92, y + 124, 76, 16)));
+            }).bounds(x + 92, y + ROW_CTL, 76, 16)));
 
             // TAG page: a tag text box + add button (only visible on the TAG page)
-            tagBox = new EditBox(this.font, x + 9, y + 124, 106, 14, Lang.t(Lang.UI_TAG_HINT));
+            tagBox = new EditBox(this.font, x + 9, y + ROW_CTL + 1, 106, 14, Lang.t(Lang.UI_TAG_HINT));
             tagBox.setMaxLength(64);
             tagBox.setHint(Lang.t(Lang.UI_TAG_PLACEHOLDER));
             addRenderableWidget(tagBox);
             addTagBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_ADD_TAG), b -> addTagFromBox())
-                    .bounds(x + 118, y + 123, 50, 16)));
+                    .bounds(x + 118, y + ROW_CTL, 50, 16)));
 
             // NBT page: a large multi-line editor (only drawn on the NBT page)
             nbtEdit = new MultilineEdit(this.font, x + NBT_X, y + NBT_Y, NBT_W, NBT_H);
@@ -231,13 +243,19 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         boolean itemPage = (page == Page.ITEM);
         if (modeBtn != null) modeBtn.visible = (page == Page.ITEM || page == Page.TAG);
         if (nbtBtn != null) nbtBtn.visible = (page == Page.ITEM || page == Page.NBT);
-        if (tagBox != null) tagBox.visible = (page == Page.TAG);
+        if (tagBox != null) {
+            tagBox.visible = (page == Page.TAG);
+            if (!tagBox.visible) tagBox.setFocused(false);   // otherwise keyPressed keeps swallowing keys off the page
+        }
         if (addTagBtn != null) addTagBtn.visible = (page == Page.TAG);
+        if (nbtEdit != null && page != Page.NBT) nbtEdit.focused = false;
+        if (page != Page.TAG) tagHits.clear();               // stale rows must not eat clicks on other pages
         // deactivate every slot off the ITEM page so the grid/inventory never renders or captures clicks
-        setSlotsActive(itemPage, itemPage);
-        btnItem.setMessage(Component.literal(page == Page.ITEM ? "▶ " : "").append(Lang.t(Lang.UI_TAB_ITEM)));
-        btnTag.setMessage(Component.literal(page == Page.TAG ? "▶ " : "").append(Lang.t(Lang.UI_TAB_TAG)));
-        btnNbt.setMessage(Component.literal(page == Page.NBT ? "▶ " : "").append(Lang.t(Lang.UI_TAB_NBT)));
+        setSlotsActive(itemPage && chType != ChannelType.ENERGY, itemPage);
+        // 选中态由按钮自身渲染（蓝底 + 下划线），不再用 "▶ " 前缀
+        btnItem.setSelected(page == Page.ITEM);
+        btnTag.setSelected(page == Page.TAG);
+        btnNbt.setSelected(page == Page.NBT);
     }
 
     private void setSlotsActive(boolean markerActive, boolean invActive) {
@@ -276,22 +294,24 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         // 1.20.1: Screen.render() does NOT dim the background for us — do it here, where it is guaranteed to run.
         this.renderBackground(gg);
         int x = leftPos, y = topPos;
+        // where the vanilla "blank band" tiling starts: right below the marker rows (ITEM) or below the dark panel
+        int stripTop = (page == Page.ITEM) ? 76 : PANEL_BOTTOM;
         if (page == Page.ITEM) {
             // top part: title bar + the 3x9 marker rows (vanilla texture y 0..76)
             gg.blit(BG, x, y, 0, 0, imageWidth, 76, TEX_W, TEX_H);
         } else {
-            // non-ITEM page: paint a plain panel over the grid region (no baked slot squares)
-            gg.fill(x, y, x + imageWidth, y + 76, STONE);
+            // non-ITEM page: paint a plain panel over the whole content region (no baked slot squares)
+            gg.fill(x, y, x + imageWidth, y + stripTop, STONE);
             gg.fill(x, y, x + imageWidth, y + 1, HI);
-            gg.fill(x, y, x + 1, y + 76, HI);
-            gg.fill(x, y + 75, x + imageWidth, y + 76, SH);
-            gg.fill(x + imageWidth - 1, y, x + imageWidth, y + 76, SH);
+            gg.fill(x, y, x + 1, y + stripTop, HI);
+            gg.fill(x, y + stripTop - 1, x + imageWidth, y + stripTop, SH);
+            gg.fill(x + imageWidth - 1, y, x + imageWidth, y + stripTop, SH);
         }
         // inserted blank strip: tile the empty band of the vanilla texture (y 73..81)
-        int filled = 0;
-        while (filled < EXTRA) {
-            int h = Math.min(8, EXTRA - filled);
-            gg.blit(BG, x, y + 76 + filled, 0, 73, imageWidth, h, TEX_W, TEX_H);
+        int filled = 0, stripH = 76 + EXTRA - stripTop;
+        while (filled < stripH) {
+            int h = Math.min(8, stripH - filled);
+            gg.blit(BG, x, y + stripTop + filled, 0, 73, imageWidth, h, TEX_W, TEX_H);
             filled += h;
         }
         // bottom part: inventory label band + inventory + hotbar + frame (vanilla texture y 76..166)
@@ -302,11 +322,8 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     public void render(GuiGraphics gg, int mx, int my, float pt) {
         super.render(gg, mx, my, pt);
         if (page != Page.ITEM) {
-            // cover the (now inactive) marker grid region and the inventory region so no slot boxes leak through
-            gg.fill(leftPos, topPos, leftPos + imageWidth, topPos + 76, STONE);
+            // cover the (now inactive) inventory region so no baked slot boxes leak through
             gg.fill(leftPos, topPos + 160, leftPos + imageWidth, topPos + imageHeight, STONE);
-            // redraw the title (it sits in the top band we just covered)
-            gg.drawString(this.font, this.title, leftPos + titleLabelX, topPos + titleLabelY, 0xFFC0C6CC, false);
             if (page == Page.TAG) drawTagPage(gg);
             else drawNbtPage(gg);
         }
@@ -315,17 +332,17 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
 
     @Override
     protected void renderLabels(GuiGraphics gg, int mx, int my) {
-        super.renderLabels(gg, mx, my);   // title + "物品栏", vanilla dark-grey ink
-        if (chType == ChannelType.ENERGY) {
+        // ITEM page keeps the vanilla beige texture (dark ink); TAG/NBT pages are a dark panel (light ink).
+        boolean itemPage = (page == Page.ITEM);
+        gg.drawString(this.font, this.title, this.titleLabelX, this.titleLabelY,
+                itemPage ? 0xFF404040 : P2PGuiTextures.TITLE, false);
+        // the player inventory only exists on the ITEM page — do not leave an orphan "物品栏" label behind
+        if (itemPage) gg.drawString(this.font, this.playerInventoryTitle, this.inventoryLabelX, this.inventoryLabelY, 0xFF404040, false);
+        if (chType == ChannelType.ENERGY && itemPage) {
             gg.fill(GRID_X, GRID_Y, GRID_X + GRID_COLS * SLOT, GRID_Y + GRID_ROWS * SLOT, 0xC0262A30);
             gg.drawString(this.font, Lang.t(Lang.UI_ENERGY_NOTE), GRID_X + 4, GRID_Y + 22, 0xFFC0C6CC, false);
-            return;
         }
-        // ITEM page hint (the grid is the main content; tag/nbt pages draw their own content in render())
-        if (page == Page.ITEM) {
-            Component hint = chType == ChannelType.ITEM ? Lang.t(Lang.UI_ITEM_HINT) : Lang.t(Lang.UI_FLUID_HINT);
-            gg.drawString(this.font, hint, GRID_X, ROW_CHIPS + 2, 0xFF9AA0A6, false);
-        }
+        // no permanent "拖入网格 / 点击格子删除" line any more: it lives in the 物品 tab's tooltip
     }
 
     /** TAG page: a scrollable vertical tag list (many rows) + the add box lives in the strip. */
@@ -366,22 +383,24 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     /** NBT page: the large multi-line editor. The strict-NBT toggle lives in the strip. */
     private void drawNbtPage(GuiGraphics gg) {
         if (chType != ChannelType.ITEM) { drawTypeOnlyNote(gg); return; }
-        if (nbtEdit != null) nbtEdit.render(gg);
-        gg.drawString(this.font, Lang.t(Lang.UI_NBT_REGEX_HINT), leftPos + NBT_X, topPos + NBT_Y + NBT_H + 4, 0xFF9AA0A6, false);
+        if (nbtEdit != null) nbtEdit.render(gg);   // 正则示例见 NBT 页签 tooltip，不再常驻一行提示
     }
 
     private void drawTypeOnlyNote(GuiGraphics gg) {
         gg.drawString(this.font, Lang.t(Lang.UI_FILTER_TYPE_ONLY), leftPos + 8, topPos + 40, 0xFFC0C6CC, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_FILTER_TYPE_ONLY2), leftPos + 8, topPos + 56, 0xFF9AA0A6, false);
     }
 
     @Override
     public boolean mouseScrolled(double mx, double my, double delta) {
-        if (page == Page.TAG && chType == ChannelType.ITEM
+        if (chType == ChannelType.ITEM && page == Page.TAG
                 && mx >= leftPos && mx <= leftPos + imageWidth && my >= topPos + TAG_Y && my <= topPos + TAG_Y + TAG_LIST_H) {
             int visible = TAG_LIST_H / TAG_ROW_H;
             int maxScroll = Math.max(0, itemTags.size() - visible);
             tagScroll = Math.max(0, Math.min(maxScroll, tagScroll - (int) Math.signum(delta)));
+            return true;
+        }
+        if (chType == ChannelType.ITEM && page == Page.NBT && nbtEdit != null && nbtEdit.isOver(mx, my)) {
+            nbtEdit.scrollBy(-(int) Math.signum(delta));
             return true;
         }
         return super.mouseScrolled(mx, my, delta);
@@ -390,11 +409,16 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
         int ix = (int) mx, iy = (int) my;
-        if (nbtEdit != null && nbtEdit.mouseClicked(mx, my, button)) return true;
-        for (TagHit h : tagHits) {
-            if (ix >= h.x && ix <= h.x + h.w && iy >= h.y && iy <= h.y + h.h) {
-                if (h.id >= 0 && h.id < itemTags.size()) itemTags.remove(h.id);
-                return true;
+        // Both of these are page-local hit tests. Without the page guard they cover the tab row as well,
+        // which is exactly why the 标签 / NBT buttons never fired: the (invisible) NBT editor and the stale
+        // tag rows returned true first and the click never reached the buttons.
+        if (page == Page.NBT && nbtEdit != null && nbtEdit.mouseClicked(mx, my, button)) return true;
+        if (page == Page.TAG) {
+            for (TagHit h : tagHits) {
+                if (ix >= h.x && ix <= h.x + h.w && iy >= h.y && iy <= h.y + h.h) {
+                    if (h.id >= 0 && h.id < itemTags.size()) itemTags.remove(h.id);
+                    return true;
+                }
             }
         }
         return super.mouseClicked(mx, my, button);
@@ -402,19 +426,19 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
 
     @Override
     public boolean charTyped(char c, int k) {
-        if (nbtEdit != null && nbtEdit.focused) return nbtEdit.charTyped(c, k);
+        if (page == Page.NBT && nbtEdit != null && nbtEdit.focused) return nbtEdit.charTyped(c, k);
         return super.charTyped(c, k);
     }
 
     @Override
     public boolean keyPressed(int key, int scan, int mods) {
         if (key == InputConstants.KEY_ESCAPE) { onClose(); return true; }
-        if (tagBox != null && tagBox.isFocused()) {
+        if (page == Page.TAG && tagBox != null && tagBox.isFocused()) {
             if (key == InputConstants.KEY_RETURN || key == InputConstants.KEY_NUMPADENTER) { addTagFromBox(); return true; }
             tagBox.keyPressed(key, scan, mods);
             return true;    // swallow, so the vanilla inventory key ('E') cannot close the screen while typing
         }
-        if (nbtEdit != null && nbtEdit.focused) { nbtEdit.keyPressed(key, scan, mods); return true; }
+        if (page == Page.NBT && nbtEdit != null && nbtEdit.focused) { nbtEdit.keyPressed(key, scan, mods); return true; }
         return super.keyPressed(key, scan, mods);
     }
 
@@ -508,15 +532,29 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
             gg.fill(x, y, x + 1, y + h, 0xFF555555);
             gg.fill(x + w - 1, y, x + w, y + h, 0xFF222222);
             gg.fill(x, y + h - 1, x + w, y + h, 0xFF222222);
-            int rowsPerScreen = h / lineH;
+            int rowsPerScreen = Math.max(1, h / lineH);
             List<int[]> visual = new ArrayList<>();
             List<int[]> meta = new ArrayList<>();   // {lineIndex, segStart, segEnd}
             for (int li = 0; li < lines.size(); li++) {
                 for (int[] seg : wrapLine(lines.get(li))) { visual.add(seg); meta.add(new int[]{li, seg[0], seg[1]}); }
             }
             int maxScroll = Math.max(0, visual.size() - rowsPerScreen);
-            if (scroll > maxScroll) scroll = maxScroll;
-            if (scroll < 0) scroll = 0;
+            // the caret's visual row: the box is short, so it has to follow the caret instead of hiding the typing
+            int caretRow = -1, vc = 0;
+            for (int li = 0; li < lines.size(); li++) {
+                List<int[]> segs = wrapLine(lines.get(li));
+                if (li == caretLine) {
+                    for (int i = 0; i < segs.size(); i++)
+                        if (caretCol <= segs.get(i)[1] || i == segs.size() - 1) { caretRow = vc + i; break; }
+                    break;
+                }
+                vc += segs.size();
+            }
+            if (focused && caretRow >= 0) {
+                if (caretRow < scroll) scroll = caretRow;
+                else if (caretRow >= scroll + rowsPerScreen) scroll = caretRow - rowsPerScreen + 1;
+            }
+            scroll = Math.max(0, Math.min(maxScroll, scroll));
             for (int r = scroll; r < visual.size() && r - scroll < rowsPerScreen; r++) {
                 int[] seg = visual.get(r);
                 int[] m = meta.get(r);
@@ -524,22 +562,12 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
                 int ry = y + 2 + (r - scroll) * lineH;
                 gg.drawString(font, Component.literal(txt), x + 3, ry, 0xFFe0e0e0, false);
             }
-            if (focused) {
-                int vc = 0;
-                for (int li = 0; li < caretLine; li++) vc += wrapLine(lines.get(li)).size();
-                List<int[]> segs = wrapLine(lines.get(caretLine));
-                int rr = -1;
-                for (int i = 0; i < segs.size(); i++) {
-                    int[] seg = segs.get(i);
-                    if (caretCol <= seg[1] || i == segs.size() - 1) { rr = vc + i; break; }
-                }
-                if (rr >= 0 && rr - scroll >= 0 && rr - scroll < rowsPerScreen) {
-                    int[] seg = segs.get(Math.min(rr - vc, segs.size() - 1));
-                    String pre = lines.get(caretLine).substring(seg[0], Math.min(caretCol, seg[1]));
-                    int cx = x + 3 + font.width(pre);
-                    int ry = y + 2 + (rr - scroll) * lineH;
-                    gg.fill(cx, ry - 1, cx + 1, ry + lineH - 1, 0xFFFFFFFF);
-                }
+            if (focused && caretRow >= scroll && caretRow < scroll + rowsPerScreen && !meta.isEmpty()) {
+                int[] m = meta.get(Math.min(caretRow, meta.size() - 1));
+                String pre = lines.get(m[0]).substring(m[1], Math.min(caretCol, m[2]));
+                int cx = x + 3 + font.width(pre);
+                int ry = y + 2 + (caretRow - scroll) * lineH;
+                gg.fill(cx, ry - 1, cx + 1, ry + lineH - 1, 0xFFFFFFFF);
             }
             if (maxScroll > 0) {
                 int barX = x + w + 1;
@@ -551,7 +579,7 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         }
 
         boolean mouseClicked(double mx, double my, int b) {
-            if (mx < x || mx > x + w || my < y || my > y + h) { focused = false; return false; }
+            if (!isOver(mx, my)) { focused = false; return false; }
             focused = true;
             int rowsPerScreen = h / lineH;
             int r = (int) ((my - y - 2) / lineH) + scroll;
@@ -584,6 +612,11 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
             for (String l : lines) n += wrapLine(l).size();
             return n;
         }
+
+        boolean isOver(double mx, double my) { return mx >= x && mx <= x + w && my >= y && my <= y + h; }
+
+        /** Mouse wheel: {@code render()} clamps the value against the real content height. */
+        void scrollBy(int rows) { scroll = Math.max(0, scroll + rows); }
 
         boolean charTyped(char c, int k) {
             if (!focused) return false;

@@ -81,6 +81,7 @@
   "p2p.ui.tag_hint": "标签",
   "p2p.ui.tag_placeholder": "forge:ingots/iron",
   "p2p.ui.add_tag": "加标签",
+  "p2p.ui.tag_tip": "填入标签 ID 后点「加标签」；点击列表行可移除",
   "p2p.ui.nbt_regex": "NBT 正则",
   "p2p.ui.nbt_regex_hint": "NBT 正则，如 .*Damage:0.*",
   "p2p.ui.energy_note": "能量频道无需过滤（始终通过）",
@@ -89,7 +90,7 @@
   "p2p.ui.nbt_fluid_hint": "流体频道不使用 NBT 过滤",
   "p2p.ui.item_hint": "将物品拖入上方网格设定模板 · 点击格子删除",
   "p2p.ui.fluid_hint": "将流体桶拖入上方网格 · 点击格子删除",
-  "p2p.ui.tag_empty": "（无标签，点击标签可移除）",
+  "p2p.ui.tag_empty": "（无标签）",
   "p2p.ui.filter_type_only": "该介质类型不支持标签 / NBT 过滤",
   "p2p.ui.filter_type_only2": "仅 ITEM 频道可用标签与 NBT 页",
 

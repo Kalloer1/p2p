@@ -104,6 +104,7 @@ public final class Lang {
     public static final String UI_TAG_HINT = "p2p.ui.tag_hint";
     public static final String UI_TAG_PLACEHOLDER = "p2p.ui.tag_placeholder";
     public static final String UI_ADD_TAG = "p2p.ui.add_tag";
+    public static final String UI_TAG_TIP = "p2p.ui.tag_tip";
     public static final String UI_NBT_REGEX = "p2p.ui.nbt_regex";
     public static final String UI_NBT_REGEX_HINT = "p2p.ui.nbt_regex_hint";
     public static final String UI_ENERGY_NOTE = "p2p.ui.energy_note";

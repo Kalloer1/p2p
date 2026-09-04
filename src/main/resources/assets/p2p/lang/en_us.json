@@ -81,6 +81,7 @@
   "p2p.ui.tag_hint": "Tag",
   "p2p.ui.tag_placeholder": "forge:ingots/iron",
   "p2p.ui.add_tag": "Add Tag",
+  "p2p.ui.tag_tip": "Type a tag id, then press Add Tag; click a row to remove it",
   "p2p.ui.nbt_regex": "NBT Regex",
   "p2p.ui.nbt_regex_hint": "NBT regex, e.g. .*Damage:0.*",
   "p2p.ui.energy_note": "Energy channel needs no filter (always passes)",
@@ -89,7 +90,7 @@
   "p2p.ui.nbt_fluid_hint": "Fluid channels do not use NBT filtering",
   "p2p.ui.item_hint": "Drag items into the grid above to set templates · click a slot to remove",
   "p2p.ui.fluid_hint": "Drag a fluid bucket into the grid above · click a slot to remove",
-  "p2p.ui.tag_empty": "(no tags; click a tag to remove)",
+  "p2p.ui.tag_empty": "(no tags)",
   "p2p.ui.filter_type_only": "This medium type does not support tag / NBT filtering",
   "p2p.ui.filter_type_only2": "Only ITEM channels have the Tag and NBT pages",
 
