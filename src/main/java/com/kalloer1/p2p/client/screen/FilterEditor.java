@@ -161,13 +161,21 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
             itemTpl.add(copy);
             syncGhost();
         } else if (chType == ChannelType.FLUID) {
-            FluidStack fs = FluidUtil.getFluidContained(stack).orElse(FluidStack.EMPTY);
-            if (fs.isEmpty()) return;
-            if (fluidTpl.size() >= GRID_COLS * GRID_ROWS) return;
-            for (FluidStack f : fluidTpl) if (f.getFluid() == fs.getFluid()) return;
-            fluidTpl.add(new FluidStack(fs.getFluid(), 1000));
-            syncGhost();
+            // 流体频道里丢进来的物品按容器处理：能倒出流体就当作流体模板
+            addFluidMarker(FluidUtil.getFluidContained(stack).orElse(FluidStack.EMPTY));
         }
+    }
+
+    /**
+     * 直接加一条流体模板。JEI 的流体条目交过来的是 FluidStack 本身（不是装满的桶），
+     * 所以流体拖拽必须走这里，不能再绕 addMarker(ItemStack)。
+     */
+    public void addFluidMarker(FluidStack fs) {
+        if (fs == null || fs.isEmpty()) return;
+        if (fluidTpl.size() >= GRID_COLS * GRID_ROWS) return;
+        for (FluidStack f : fluidTpl) if (f.getFluid() == fs.getFluid()) return;   // no duplicates
+        fluidTpl.add(new FluidStack(fs.getFluid(), 1000));
+        syncGhost();
     }
 
     /** Mirror the template lists into the ghost container so vanilla renders them in the marker slots. */
