@@ -9,6 +9,8 @@ import com.kalloer1.p2p.client.ClientBindState;
 import com.kalloer1.p2p.client.screen.ChannelScreen;
 import com.kalloer1.p2p.network.ModMessages;
 import com.kalloer1.p2p.network.RequestChannelsC2SPacket;
+import com.mojang.blaze3d.platform.GlStateManager;
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
@@ -18,6 +20,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderStateShard;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
@@ -36,8 +39,6 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
-import java.util.OptionalDouble;
-
 /** FORGE-bus client events: open the config screen, draw endpoint highlight boxes + bound-face glow,
  *  and draw a see-through (x-ray) red frame around a block the player jump-highlighted from the GUI. */
 @Mod.EventBusSubscriber(modid = P2P.MODID, value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.FORGE)
@@ -46,9 +47,39 @@ public final class ClientForgeEvents {
 
     private ClientForgeEvents() {}
 
-    // Vanilla's debug quad type: POSITION_COLOR, QUADS, translucent, no cull.
-    // Each face is exactly 4 vertices in PERIMETER order, so QUADS mode draws a full, non-bowtied face.
-    private static final RenderType GLOW_RT = RenderType.debugQuads();
+    /**
+     * 端点面光 + 跳转高亮框的渲染类型。配方照抄 SFM（Super Factory Manager）标签枪方块高亮
+     * （TeamDman/SuperFactoryManager 1.20.1, ItemWorldRenderer.java:47-75），那是玩家实测
+     * 「光影开/关都能透视显示」的活证据：
+     *  - 纹理状态绑**方块图集**：Iris/Oculus 会把这类 pass 归入自己的世界管线（textured 通道）
+     *    而不是丢弃——无纹理的 debugQuads / 裸 position_color 立即模式都会被光影区别对待；
+     *  - depthTest always(519)：恒定穿墙 X 光（深度恒通过），不需要手工 GL 状态；
+     *  - 透明度 **SRC_ALPHA→ONE 加法混合**：光是「加上去发光」而不是「盖上去被亮背景稀释」，
+     *    光影 HDR/曝光后的天空与发光体前也不会消失（标准 alpha 混合在 0.22 低透明度下会被吃掉）；
+     *  - cull 关闭：X 光穿墙时方块背面的绑定面也要可见；
+     *  - 阶段用 AFTER_PARTICLES（SFM 同款）：此时仍在世界渲染管线内、bufferSource 正常提交。
+     * 颜色/alpha 语义（IN 红 1/0.15/0.15、OUT 蓝 0.25/0.45/1、hover 黄、当前频道更亮）全部保留。
+     */
+    private static final RenderType GLOW_RT = RenderType.create(
+            "p2p_overlay",
+            DefaultVertexFormat.POSITION_COLOR,
+            VertexFormat.Mode.QUADS,
+            1536,
+            false,
+            false,
+            RenderType.CompositeState.builder()
+                    .setTextureState(new RenderStateShard.TextureStateShard(TextureAtlas.LOCATION_BLOCKS, false, false))
+                    .setDepthTestState(new RenderStateShard.DepthTestStateShard("always", 519))
+                    .setCullState(new RenderStateShard.CullStateShard(false))
+                    .setTransparencyState(new RenderStateShard.TransparencyStateShard("p2p_additive", () -> {
+                        RenderSystem.enableBlend();
+                        RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE);
+                    }, () -> {
+                        RenderSystem.disableBlend();
+                        RenderSystem.defaultBlendFunc();
+                    }))
+                    .createCompositeState(true)
+    );
 
     // Block-space corner offsets (0..1) for each face, ordered around the perimeter (NOT a triangle strip).
     // A triangle-strip ordering drawn in QUADS mode makes a self-intersecting "bowtie" that drops a triangle;
@@ -66,10 +97,8 @@ public final class ClientForgeEvents {
             {0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}, {-1, 0, 0}, {1, 0, 0},
     };
 
-    // See-through red box for the GUI-driven "jump to block" highlight. Reuses debugQuads() (a public
-    // RenderType that already disables the depth test and raises the view layer, so it draws through terrain
-    // as an x-ray) to avoid the protected RenderStateShard constants and the line-only RenderType access limits.
-    private static final RenderType XRAY_RT = GLOW_RT;
+    /** 端点面片沿法线外推的距离，避免和方块表面 z-fighting。 */
+    private static final float FACE_EPS = 0.015f;
 
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
@@ -97,24 +126,24 @@ public final class ClientForgeEvents {
         var bs = mc.renderBuffers().bufferSource();
         Vec3 cam = event.getCamera().getPosition();
 
-        // (1) GUI "jump to block" highlight — drawn regardless of bind mode.
-        drawHighlight(pose, bs, cam);
-
-        // (2) Bound-face glow — only while the bind mode is active (the old wrench is gone).
-        if (!ClientBindState.isActive()) return;
-        int boundCid = ClientBindState.getBoundChannel();
-        CompoundTag data = ClientChannelCache.INSTANCE.getData();
-        if (data == null) return;
-
-        ResourceLocation dim = mc.level.dimension().location();
-        BlockPos ppos = mc.player.blockPosition();
-
-        HitResult hit = mc.hitResult;
-        BlockPos hoverPos = (hit instanceof BlockHitResult bhr) ? bhr.getBlockPos() : null;
-        Direction hoverFace = (hit instanceof BlockHitResult bhr) ? bhr.getDirection() : null;
-
         VertexConsumer vc = bs.getBuffer(GLOW_RT);
         try {
+            // (1) GUI "jump to block" highlight — drawn regardless of bind mode.
+            drawHighlight(pose, vc, cam);
+
+            // (2) Bound-face glow — only while the bind mode is active (the old wrench is gone).
+            if (!ClientBindState.isActive()) return;
+            int boundCid = ClientBindState.getBoundChannel();
+            CompoundTag data = ClientChannelCache.INSTANCE.getData();
+            if (data == null) return;
+
+            ResourceLocation dim = mc.level.dimension().location();
+            BlockPos ppos = mc.player.blockPosition();
+
+            HitResult hit = mc.hitResult;
+            BlockPos hoverPos = (hit instanceof BlockHitResult bhr) ? bhr.getBlockPos() : null;
+            Direction hoverFace = (hit instanceof BlockHitResult bhr) ? bhr.getDirection() : null;
+
             boolean hoverBound = false;
             int rendered = 0;
             for (Tag t : data.getList("channels", Tag.TAG_COMPOUND)) {
@@ -137,11 +166,12 @@ public final class ClientForgeEvents {
             if (hoverPos != null && hoverFace != null && !hoverBound) {
                 faceGlow(pose, vc, hoverPos, hoverFace, 1f, 0.95f, 0.35f, 0.6f, cam);
             }
-            bs.endBatch(GLOW_RT);
             P2P.LOGGER.debug("[p2p] overlay rendered members={} boundCid={} hover={}/{}", rendered, boundCid, hoverPos, hoverFace);
         } catch (Throwable ex) {
             // Defensive: a broken overlay must never crash the client.
             P2P.LOGGER.error("[p2p] endpoint overlay render failed; skipping this frame", ex);
+        } finally {
+            bs.endBatch(GLOW_RT);
         }
     }
 
@@ -170,22 +200,20 @@ public final class ClientForgeEvents {
                 boxX + pad, boxY + pad, 0xFFFFFFFF, false);
     }
 
-    private static void drawHighlight(PoseStack pose, MultiBufferSource.BufferSource bs, Vec3 cam) {
+    private static void drawHighlight(PoseStack pose, VertexConsumer vc, Vec3 cam) {
         BlockPos p = ClientChannelCache.INSTANCE.getHighlightPos();
         if (p == null) return;
         if (System.currentTimeMillis() > ClientChannelCache.INSTANCE.getHighlightExpire()) {
             ClientChannelCache.INSTANCE.clearHighlight();
             return;
         }
-        VertexConsumer vc = bs.getBuffer(XRAY_RT);
         drawHighlightBox(pose, vc, p, cam);
-        bs.endBatch(XRAY_RT);
     }
 
     /**
-     * Draw a see-through red cube around the highlighted block (6 faces, filled, translucent). Uses
-     * debugQuads() so it renders through terrain (x-ray) without touching the protected RenderStateShard
-     * constants. The FACE_QUAD corners are perimeter-ordered so each face is a proper convex quad.
+     * Draw a see-through red cube around the highlighted block (6 faces, filled, additive glow). The
+     * FACE_QUAD corners are perimeter-ordered so each face is a proper convex quad. Redrawn every frame
+     * while the highlight is fresh (expiry handled by the caller).
      */
     private static void drawHighlightBox(PoseStack pose, VertexConsumer vc, BlockPos pos, Vec3 cam) {
         var m = pose.last().pose();
@@ -205,17 +233,16 @@ public final class ClientForgeEvents {
         return role == Role.INPUT ? new float[]{1f, 0.15f, 0.15f} : new float[]{0.25f, 0.45f, 1f};
     }
 
-    /** Draw a translucent filled face as a POSITION_COLOR quad (debugQuads mode, no cull). */
+    /** Draw a translucent filled face as a POSITION_COLOR quad (additive glow, depth always passes = x-ray). */
     private static void faceGlow(PoseStack pose, VertexConsumer vc, BlockPos pos, Direction face,
                                  float r, float g, float b, float a, Vec3 cam) {
         var m = pose.last().pose();
         float[][] quad = FACE_QUAD[face.ordinal()];
         float[] n = FACE_NORMAL[face.ordinal()];
-        float eps = 0.015f;
         for (int i = 0; i < 4; i++) {
-            float x = (float)(pos.getX() + quad[i][0] + n[0] * eps - cam.x);
-            float y = (float)(pos.getY() + quad[i][1] + n[1] * eps - cam.y);
-            float z = (float)(pos.getZ() + quad[i][2] + n[2] * eps - cam.z);
+            float x = (float)(pos.getX() + quad[i][0] + n[0] * FACE_EPS - cam.x);
+            float y = (float)(pos.getY() + quad[i][1] + n[1] * FACE_EPS - cam.y);
+            float z = (float)(pos.getZ() + quad[i][2] + n[2] * FACE_EPS - cam.z);
             vc.vertex(m, x, y, z).color(r, g, b, a).endVertex();
         }
     }
