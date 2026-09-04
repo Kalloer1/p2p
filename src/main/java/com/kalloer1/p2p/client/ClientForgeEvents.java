@@ -11,6 +11,7 @@ import com.kalloer1.p2p.network.ModMessages;
 import com.kalloer1.p2p.network.RequestChannelsC2SPacket;
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
@@ -100,6 +101,19 @@ public final class ClientForgeEvents {
     /** 端点面片沿法线外推的距离，避免和方块表面 z-fighting。 */
     private static final float FACE_EPS = 0.015f;
 
+    /**
+     * 专用的覆盖层 bufferSource——**不用** `mc.renderBuffers().bufferSource()`。
+     *
+     * Oculus（Iris）开启时会用 FullyBufferedMultiBufferSource 替换共享 bufferSource：endBatch 只把
+     * 段排进批处理队列，真正上传延迟到某人全量 flush 的时机（实测中 mcjtylib 的 DelayedRenderer
+     * 会在 Iris 阴影 pass 派发的 RenderLevelStageEvent 里全量 flush——阴影 pass 没有主渲染的 shader
+     * 程序，段上传时 shader 为 null → VertexBuffer NPE，整帧崩溃，且栈帧落在 flush 执行者身上，
+     * 看起来与 p2p 无关）。自建 source 的 endBatch 走 BufferUploader 立即上传，不产生延迟段，
+     * 从根上避开这条崩溃通道。
+     */
+    private static final MultiBufferSource.BufferSource OVERLAY_SRC =
+            MultiBufferSource.immediate(new BufferBuilder(1536));
+
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
@@ -123,7 +137,7 @@ public final class ClientForgeEvents {
         if (mc.player == null || mc.level == null) return;
 
         PoseStack pose = event.getPoseStack();
-        var bs = mc.renderBuffers().bufferSource();
+        var bs = OVERLAY_SRC;
         Vec3 cam = event.getCamera().getPosition();
 
         VertexConsumer vc = bs.getBuffer(GLOW_RT);
