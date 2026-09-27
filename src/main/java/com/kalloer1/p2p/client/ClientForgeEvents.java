@@ -7,6 +7,7 @@ import com.kalloer1.p2p.channel.Member;
 import com.kalloer1.p2p.channel.Role;
 import com.kalloer1.p2p.network.RequestChannelsC2SPacket;
 import com.kalloer1.p2p.client.screen.ChannelScreen;
+import com.kalloer1.p2p.client.screen.P2PTheme;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
@@ -43,6 +44,8 @@ import org.lwjgl.opengl.GL11;
 @EventBusSubscriber(modid = P2P.MODID, value = Dist.CLIENT)
 public final class ClientForgeEvents {
     private static final int HUD_RANGE = 32;
+    /** 绑定 HUD 胶囊底色（spec v1.2：iOS 深色半透明 0xC01C1C1E）。 */
+    private static final int HUD_CAPSULE_BG = 0xC01C1C1E;
 
     private ClientForgeEvents() {}
 
@@ -249,7 +252,10 @@ public final class ClientForgeEvents {
         }
     }
 
-    /** 绑定模式开启时在屏幕底部画一条状态条：当前频道 + 操作提示。 */
+    /**
+     * 绑定模式开启时在屏幕底部居中画一条 iOS 深色半透明胶囊状态条（spec v1.2：文案不变只换皮）——
+     * "P2P 绑定模式"白色加粗（单绘 + 阴影）、"频道 #N"用 TINT 蓝点缀、操作提示用 TEXT_SECOND 浅灰。
+     */
     @SubscribeEvent
     public static void onRenderGui(RenderGuiEvent.Post evt) {
         if (!ClientBindState.isActive()) return;
@@ -258,18 +264,21 @@ public final class ClientForgeEvents {
         GuiGraphics gg = evt.getGuiGraphics();
         int w = mc.getWindow().getGuiScaledWidth();
         int ch = ClientBindState.getBoundChannel();
-        MutableComponent bindText = Component.empty()
-                .append(Lang.t(Lang.HUD_BIND))
-                .append(ch >= 0 ? Lang.t(Lang.HUD_BIND_CHANNEL, ch) : Lang.t(Lang.HUD_BIND_NO_CHANNEL))
-                .append(Lang.t(Lang.HUD_HINT));
-        int pad = 6, fh = 10;
-        int boxW = mc.font.width(bindText) + pad * 2;
+        MutableComponent title = Lang.t(Lang.HUD_BIND);
+        MutableComponent channelPart = ch >= 0 ? Lang.t(Lang.HUD_BIND_CHANNEL, ch) : Lang.t(Lang.HUD_BIND_NO_CHANNEL);
+        MutableComponent hint = Lang.t(Lang.HUD_HINT);
+        int padX = 10;
+        int boxH = mc.font.lineHeight + 10;
+        int boxW = padX * 2 + mc.font.width(title) + mc.font.width(channelPart) + mc.font.width(hint);
         int boxX = (w - boxW) / 2;
         int boxY = mc.getWindow().getGuiScaledHeight() - 46;
-        gg.fill(boxX, boxY, boxX + boxW, boxY + fh + pad * 2, 0xCC2f2f2f);
-        gg.fill(boxX, boxY, boxX + boxW, boxY + 1, 0xFFFFFFFF);
-        gg.fill(boxX, boxY + fh + pad * 2 - 1, boxX + boxW, boxY + fh + pad * 2, 0xFF555555);
-        gg.drawString(mc.font, bindText.withStyle(ch >= 0 ? net.minecraft.ChatFormatting.GREEN : net.minecraft.ChatFormatting.YELLOW),
-                boxX + pad, boxY + pad, 0xFFFFFFFF, false);
+        int textY = boxY + (boxH - mc.font.lineHeight) / 2;
+        P2PTheme.drawRoundRect(gg, boxX, boxY, boxW, boxH, boxH / 2, HUD_CAPSULE_BG);
+        int x = boxX + padX;
+        P2PTheme.drawStringBold(gg, mc.font, title, x, textY, P2PTheme.CARD);
+        x += mc.font.width(title);
+        x += gg.drawString(mc.font, channelPart, x, textY,
+                ch >= 0 ? P2PTheme.TINT : P2PTheme.WARNING, false);
+        gg.drawString(mc.font, hint, x, textY, P2PTheme.TEXT_SECOND, false);
     }
 }

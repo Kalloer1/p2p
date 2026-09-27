@@ -23,7 +23,6 @@ public final class Lang {
     public static final String UI_REDSTONE = "p2p.ui.redstone";
     public static final String UI_DISTRIBUTION = "p2p.ui.distribution";
     public static final String UI_GROUP = "p2p.ui.group";
-    public static final String UI_CLEAN_AIR = "p2p.ui.clean_air";
     public static final String UI_TYPE_UNKNOWN = "p2p.type.unknown";
     public static final String UI_CHUNKLOAD_ON = "p2p.ui.chunkload_on";
     public static final String UI_CHUNKLOAD_OFF = "p2p.ui.chunkload_off";
@@ -58,6 +57,16 @@ public final class Lang {
     public static final String UI_PILL_CHUNKLOAD = "p2p.ui.pill.chunkload";
     /** 面板脚注：端点多选 + 复制/粘贴提示。 */
     public static final String UI_ENDPOINT_HINT = "p2p.ui.endpoint_hint";
+
+    // ---- 端点行失效状态（1.3.1：面板实时解析世界现状，不做破坏自动移除） ----
+    /** 已失效（维度已加载、坐标处方块为空气）行内标注。 */
+    public static final String UI_ENDPOINT_INVALID = "p2p.ui.endpoint_invalid";
+    /** 已失效行的悬停说明。 */
+    public static final String UI_ENDPOINT_INVALID_TIP = "p2p.ui.endpoint_invalid_tip";
+    /** 维度未加载（状态未知）行内提示。 */
+    public static final String UI_ENDPOINT_UNLOADED = "p2p.ui.endpoint_unloaded";
+    /** 清理失效端点按钮 tooltip。 */
+    public static final String UI_CLEAN_INVALID = "p2p.ui.clean_invalid";
 
     // ---- channel type ----
     public static final String UI_TYPE_ITEM = "p2p.ui.type.item";
@@ -187,6 +196,8 @@ public final class Lang {
     public static final String MSG_CHAIN_ADDED = "p2p.msg.chain_added";
     public static final String MSG_UNCHAIN_NONE = "p2p.msg.unchain_none";
     public static final String MSG_UNCHAIN_REMOVED = "p2p.msg.unchain_removed";
+    /** 绑定点击回显的后缀：当前频道端点总数（1.3.1）。 */
+    public static final String MSG_ENDPOINT_TOTAL = "p2p.msg.endpoint_total";
 
     // ---- bind-mode + packet chat messages ----
     public static final String MSG_BIND_ON = "p2p.msg.bind_on";

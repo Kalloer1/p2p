@@ -261,13 +261,18 @@ public class ChannelManager extends SavedData {
                 channelId, pos, face, role, bound, dim);
 
         boolean removed = channel.members.removeIf(m -> m.key().equals(key));
+        // 1.3.1：绑定点击结果回显到聊天栏（原来只走 actionbar），并附带当前频道端点总数
         if (removed) {
-            player.displayClientMessage(Lang.t(Lang.MSG_ENDPOINT_REMOVED, channelId).withStyle(ChatFormatting.YELLOW), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_ENDPOINT_REMOVED, channelId)
+                    .append(Lang.t(Lang.MSG_ENDPOINT_TOTAL, channel.members.size()))
+                    .withStyle(ChatFormatting.YELLOW), false);
         } else {
             // 绑定这一刻区块必定已加载，把方块 id 一起记下来，GUI 才能给跨维度端点画图标
             channel.members.add(new Member(dim, pos, face, role, null, null, 0, BuiltInRegistries.BLOCK.getKey(bound)));
             Component roleStr = role == Role.INPUT ? Lang.t(Lang.MSG_ROLE_IN) : Lang.t(Lang.MSG_ROLE_OUT);
-            player.displayClientMessage(Lang.t(Lang.MSG_ENDPOINT_ADDED, channelId, roleStr).withStyle(ChatFormatting.GREEN), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_ENDPOINT_ADDED, channelId, roleStr)
+                    .append(Lang.t(Lang.MSG_ENDPOINT_TOTAL, channel.members.size()))
+                    .withStyle(ChatFormatting.GREEN), false);
         }
         P2P.LOGGER.info("[p2p] toggleEndpoint result: channel={} members={} removed={}", channelId, channel.members.size(), removed);
         setDirty();
@@ -320,9 +325,11 @@ public class ChannelManager extends SavedData {
             }
         }
         if (added == 0)
-            player.displayClientMessage(Lang.t(Lang.MSG_CHAIN_NONE).withStyle(ChatFormatting.YELLOW), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_CHAIN_NONE).withStyle(ChatFormatting.YELLOW), false);
         else
-            player.displayClientMessage(Lang.t(Lang.MSG_CHAIN_ADDED, added, channelId).withStyle(ChatFormatting.GREEN), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_CHAIN_ADDED, added, channelId)
+                    .append(Lang.t(Lang.MSG_ENDPOINT_TOTAL, channel.members.size()))
+                    .withStyle(ChatFormatting.GREEN), false);
         P2P.LOGGER.info("[p2p] bindChain result: added={} target={} channel={}", added, target, channelId);
         if (added > 0) {
             setDirty();
@@ -365,9 +372,11 @@ public class ChannelManager extends SavedData {
             }
         }
         if (removed == 0)
-            player.displayClientMessage(Lang.t(Lang.MSG_UNCHAIN_NONE).withStyle(ChatFormatting.YELLOW), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_UNCHAIN_NONE).withStyle(ChatFormatting.YELLOW), false);
         else
-            player.displayClientMessage(Lang.t(Lang.MSG_UNCHAIN_REMOVED, removed).withStyle(ChatFormatting.YELLOW), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_UNCHAIN_REMOVED, removed)
+                    .append(Lang.t(Lang.MSG_ENDPOINT_TOTAL, channel.members.size()))
+                    .withStyle(ChatFormatting.YELLOW), false);
         P2P.LOGGER.info("[p2p] unbindChain result: removed={} target={} channel={}", removed, target, channelId);
         if (removed > 0) {
             setDirty();
@@ -392,6 +401,9 @@ public class ChannelManager extends SavedData {
             ResourceKey<Level> key = ResourceKey.create(Registries.DIMENSION, m.dim);
             ServerLevel lvl = server.getLevel(key);
             if (lvl == null) return false;
+            // 与客户端三态对齐：只清理"已加载且为空气"的端点；
+            // 未加载区块不同步加载判定（避免触发磁盘/生成加载，也不清状态未知端点）。
+            if (!lvl.isLoaded(m.pos)) return false;
             return lvl.getBlockState(m.pos).isAir();
         });
         int removed = before - channel.members.size();

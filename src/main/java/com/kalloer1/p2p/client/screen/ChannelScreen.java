@@ -123,12 +123,16 @@ public class ChannelScreen extends Screen {
 
     private final List<Hit> leftRects = new ArrayList<>();
     private final List<MemberBtn> memberBtns = new ArrayList<>();
-    private final List<PosHit> posHits = new ArrayList<>();
+    /** 双击定位热区：端点行的物品图标 + 维度色条段（1.3.1 从坐标文本挪过来）。单击=选中，双击=定位。 */
+    private final List<JumpHit> jumpHits = new ArrayList<>();
     private final List<BlockHit> blockHits = new ArrayList<>();
     private final List<DimHit> dimHits = new ArrayList<>();
+    /** 面列专属热区：点击循环换面（SET_FACE），与 IN/OUT 徽牌同级的行内控件。 */
     private final List<FaceHit> faceHits = new ArrayList<>();
     private int lastDblIndex = -1;
     private long lastDblTime = 0;
+    /** 当前频道里"已失效"（维度已加载但方块为空气）端点的实时数量，驱动清理按钮显隐。 */
+    private int invalidCount = 0;
     private int nameHitX, nameHitY, nameHitW, nameHitH;
     private boolean nameHitValid = false;
     private int netNameHitX, netNameHitW;
@@ -331,9 +335,17 @@ public class ChannelScreen extends Screen {
         rateFocusPrev = rateEdit.isFocused();
         speedFocusPrev = speedEdit.isFocused();
         // dimension tooltip: the row only has room for a 2-char label, so the full id is shown on hover
+        // (1.3.1：附上端点实时状态——已失效 / 未加载未知)
         for (DimHit d : dimHits) {
             if (mx >= d.x && mx <= d.x + d.w && my >= d.y && my <= d.y + d.h) {
-                gg.renderTooltip(this.font, Lang.t(Lang.HUD_DIMENSION, d.dim), mx, my);
+                Component tip;
+                if (d.state == EndpointState.INVALID)
+                    tip = Lang.t(Lang.UI_ENDPOINT_INVALID_TIP).append(" · ").append(Lang.t(Lang.HUD_DIMENSION, d.dim));
+                else if (d.state == EndpointState.UNKNOWN)
+                    tip = Lang.t(Lang.HUD_DIMENSION, d.dim).append(" · ").append(Lang.t(Lang.UI_ENDPOINT_UNLOADED));
+                else
+                    tip = Lang.t(Lang.HUD_DIMENSION, d.dim);
+                gg.renderTooltip(this.font, tip, mx, my);
                 break;
             }
         }
@@ -391,7 +403,12 @@ public class ChannelScreen extends Screen {
      */
     private void fitConfigRow() {
         if (redstoneBtn == null || !redstoneBtn.visible) return;
-        P2PFlatButton[] row = {redstoneBtn, distBtn, groupBtn, cleanBtn, chunkLoadBtn};
+        // 不可见按钮（如按需出现的"清理失效端点"）不参与排版，避免留出空档
+        List<P2PFlatButton> rowList = new ArrayList<>();
+        for (P2PFlatButton b : new P2PFlatButton[]{redstoneBtn, distBtn, groupBtn, cleanBtn, chunkLoadBtn})
+            if (b.visible) rowList.add(b);
+        if (rowList.isEmpty()) return;
+        P2PFlatButton[] row = rowList.toArray(new P2PFlatButton[0]);
         int rx = leftPos + RIGHT_X;
         int chipW = typeBtn != null && typeBtn.visible ? typeBtn.getWidth() + 4 : 0;
         int gap = 4;
@@ -516,8 +533,10 @@ public class ChannelScreen extends Screen {
         Channel c = findChannel(selectedChannel);
         boolean has = c != null;
         redstoneBtn.visible = distBtn.visible = rateDown.visible = rateUp.visible = speedDown.visible = speedUp.visible
-                = rateEdit.visible = speedEdit.visible = groupBtn.visible = bindBtn.visible = deleteBtn.visible = cleanBtn.visible
+                = rateEdit.visible = speedEdit.visible = groupBtn.visible = bindBtn.visible = deleteBtn.visible
                 = maxRateBtn.visible = has;
+        // 清理失效端点按钮：仅当前频道存在失效端点时出现（行扫描后再定，见下方 row loop）
+        cleanBtn.visible = false;
         typeBtn.visible = has;
         if (deleteGrpBtn != null) deleteGrpBtn.active = has && (selectedGroup >= 0 || (c != null && c.groupId >= 0));
         if (!has) {
@@ -538,9 +557,9 @@ public class ChannelScreen extends Screen {
         groupBtn.setMessage(Lang.t(Lang.UI_PILL_GROUP));
         groupBtn.setTooltip(Tooltip.create(Lang.t(Lang.UI_GROUP, groupLabel(c.groupId))));
         groupBtn.setHighlighted(c.groupId >= 0);
-        // cleanBtn 是动作钮没有状态，高亮恒为 false；tooltip 用原完整文案
+        // cleanBtn 是动作钮没有状态，高亮恒为 false；tooltip 说明"清理失效端点"的范围
         cleanBtn.setMessage(Lang.t(Lang.UI_PILL_CLEAN));
-        cleanBtn.setTooltip(Tooltip.create(Lang.t(Lang.UI_CLEAN_AIR)));
+        cleanBtn.setTooltip(Tooltip.create(Lang.t(Lang.UI_CLEAN_INVALID)));
         cleanBtn.setHighlighted(false);
         typeBtn.setMessage(typeLabel(c.type));
         typeBtn.setChipColor(typeColor(c.type));
@@ -564,7 +583,7 @@ public class ChannelScreen extends Screen {
         if (ext != null && ext.replacesDefaultPanel(c)) {
             rateDown.visible = rateUp.visible = speedDown.visible = speedUp.visible = maxRateBtn.visible = false;
             rateEdit.visible = speedEdit.visible = false;
-            memberBtns.clear(); posHits.clear(); dimHits.clear(); blockHits.clear(); faceHits.clear();
+            memberBtns.clear(); jumpHits.clear(); dimHits.clear(); blockHits.clear(); faceHits.clear();
             ext.drawDetails(detailContext(), gg, c);
             return;
         }
@@ -589,7 +608,7 @@ public class ChannelScreen extends Screen {
         gg.fill(rx + P2PTheme.PAD, rowsTop, rx + RIGHT_W - P2PTheme.PAD, rowsTop + 1, P2PTheme.SEPARATOR);
 
         memberBtns.clear();
-        posHits.clear();
+        jumpHits.clear();
         dimHits.clear();
         blockHits.clear();
         faceHits.clear();
@@ -599,6 +618,10 @@ public class ChannelScreen extends Screen {
             if (ext != null) ext.drawDetails(detailContext(), gg, c);
             return;
         }
+        // 失效端点实时统计（同维度已加载但方块为空气）；驱动"清理失效端点"按钮显隐
+        invalidCount = 0;
+        for (Member m : c.members) if (endpointState(m) == EndpointState.INVALID) invalidCount++;
+        cleanBtn.visible = invalidCount > 0;
         int viewport = tableBottom - rowsTop;
         memberContentH = c.members.size() * ROW_H;
         memberScroll = clamp(memberScroll, 0, Math.max(0, memberContentH - viewport));
@@ -651,40 +674,78 @@ public class ChannelScreen extends Screen {
                 topPos + RATE_TOP + RATE_ROW + 5, P2PTheme.TEXT_TERT, false);
     }
 
+    /** 端点行的实时状态（1.3.1，面板直接反映世界现状，不做破坏自动移除）。 */
+    private enum EndpointState {
+        /** 维度已加载且方块仍在：正常图标。 */
+        VALID,
+        /** 维度已加载但坐标处是空气：方块已被破坏 → 空槽井 + 整行红字"已失效"。 */
+        INVALID,
+        /** 跨维度 / 区块未加载：状态未知 → blockId 兜底图标 + "未加载"级提示，不标红。 */
+        UNKNOWN
+    }
+
+    /**
+     * 实时解析端点现状：只在玩家当前维度且区块已加载时才能判定（空气=失效、有方块=有效）；
+     * 其余情况（跨维度、本维度区块未加载）一律 UNKNOWN，绝不把"查不到"误判成"已失效"。
+     */
+    private EndpointState endpointState(Member m) {
+        if (this.minecraft.level == null || !this.minecraft.level.dimension().location().equals(m.dim))
+            return EndpointState.UNKNOWN;
+        if (!this.minecraft.level.hasChunkAt(m.pos)) return EndpointState.UNKNOWN;
+        return this.minecraft.level.getBlockState(m.pos).isAir() ? EndpointState.INVALID : EndpointState.VALID;
+    }
+
     private void drawMemberRow(GuiGraphics gg, Member m, int index, int ry, int cx) {
         // 选中判定按 memberKey（多选集合），行内控件的点击语义不受选中影响
         boolean sel = selectedEndpoints.contains(m.key());
         if (sel) P2PTheme.drawRoundRect(gg, cx - P2PTheme.PAD + 1, ry, RIGHT_W - 2, ROW_H, P2PTheme.R_CARD, P2PTheme.CARD_SEL);
         gg.fill(cx, ry + ROW_H - 1, cx + RIGHT_W - P2PTheme.PAD * 2, ry + ROW_H, P2PTheme.SEPARATOR);
 
-        // 方块图标：坐标节点旁显示该位置方块，方便辨认。
-        // 同维度且区块已加载时优先实时取（pick-stack + 方块实体 NBT 能还原模组方块的变体/染色，
-        // 如精妙存储「橡木钻石箱子」的木材类型——JEI 对物品名的显示也以 ItemStack 为准）；
-        // 否则退回绑定时记录的 Member.blockId——这样跨维度 / 区块未加载的端点也有图标。
+        EndpointState st = endpointState(m);
+        boolean invalid = st == EndpointState.INVALID;
+
+        // 方块图标三态：有效=实时取（pick-stack + 方块实体 NBT 还原模组变体）；
+        // 未知（跨维度/区块未加载）=绑定时记录的 blockId 兜底显示最后已知图标；
+        // 已失效=不画旧图标，画空槽井（绝不回退到 blockId 显示已破坏方块的"幽灵图标"）。
         ItemStack icon = endpointIcon(m);
         if (!icon.isEmpty()) {
             gg.renderItem(icon, cx + COL_ICON, ry + 1);
             blockHits.add(new BlockHit(index, cx + COL_ICON, ry, 16, ROW_H, icon));
+        } else {
+            P2PTheme.slotWell(gg, cx + COL_ICON, ry + 1);
         }
 
-        // dimension: colour pill + short label (hover shows the full dimension id)
+        // 双击定位热区 = 物品图标 + 维度色条那一段（单击=选中，双击=跳转定位，见 mouseClicked）
+        jumpHits.add(new JumpHit(index, cx + COL_ICON, ry, COL_DIM_TEXT - COL_ICON, ROW_H));
+
+        // dimension: colour pill + short label (hover shows the full dimension id + 状态提示)
         String dimId = m.dim.toString();
-        P2PTheme.dimPill(gg, cx + COL_DIM, ry + 3, ROW_H - 6, dimColor(dimId));
-        String dimS = dimShort(dimId);
-        gg.drawString(this.font, Component.literal(dimS), cx + COL_DIM_TEXT, ry + 5, P2PTheme.TEXT_PRIMARY, false);
-        dimHits.add(new DimHit(dimId, cx + COL_DIM, ry + 2, COL_DIM_TEXT - COL_DIM + this.font.width(dimS) + 2, ROW_H - 4));
+        P2PTheme.dimPill(gg, cx + COL_DIM, ry + 3, ROW_H - 6,
+                invalid ? P2PTheme.DANGER : st == EndpointState.UNKNOWN ? P2PTheme.TEXT_TERT : dimColor(dimId));
+        Component dimLabel = invalid ? Lang.t(Lang.UI_ENDPOINT_INVALID) : Component.literal(dimShort(dimId));
+        gg.drawString(this.font, dimLabel, cx + COL_DIM_TEXT, ry + 5,
+                invalid ? P2PTheme.DANGER : st == EndpointState.UNKNOWN ? P2PTheme.TEXT_TERT : P2PTheme.TEXT_PRIMARY, false);
+        dimHits.add(new DimHit(dimId, st, cx + COL_DIM, ry + 2,
+                COL_DIM_TEXT - COL_DIM + this.font.width(dimLabel) + 2, ROW_H - 4));
 
         // coordinate (left-aligned at a fixed x; ellipsised if a huge coordinate would overflow)
         String pos = trim(m.pos.getX() + "," + m.pos.getY() + "," + m.pos.getZ(), COL_POS_W);
         int posX = cx + COL_POS;
-        gg.drawString(this.font, Component.literal(pos), posX, ry + 5, P2PTheme.TEXT_PRIMARY, false);
-        posHits.add(new PosHit(index, posX - 2, ry + 2, this.font.width(pos) + 4, ROW_H - 4));
+        gg.drawString(this.font, Component.literal(pos), posX, ry + 5,
+                invalid ? P2PTheme.DANGER : P2PTheme.TEXT_PRIMARY, false);
 
-        // face direction (centered in its column)
+        // face direction: 专属控件热区（点击循环换面 SET_FACE），做成小 pill 以示可点；
+        // 失效行不画 pill（换面已无意义），只保留红字展示。
         Component face = faceShort(m.face);
         int faceW = this.font.width(face);
-        gg.drawString(this.font, face, cx + COL_FACE + (COL_FACE_W - faceW) / 2, ry + 5, P2PTheme.TEXT_PRIMARY, false);
-        faceHits.add(new FaceHit(index, cx + COL_FACE - 2, ry + 1, COL_FACE_W + 4, ROW_H - 2));
+        if (!invalid) {
+            P2PTheme.drawPill(gg, cx + COL_FACE - 2, ry + 3, COL_FACE_W + 4, 12, P2PTheme.FIELD_BG);
+            gg.drawString(this.font, face, cx + COL_FACE + (COL_FACE_W - faceW) / 2, ry + 5, P2PTheme.TEXT_PRIMARY, false);
+        } else {
+            gg.drawString(this.font, face, cx + COL_FACE + (COL_FACE_W - faceW) / 2, ry + 5, P2PTheme.DANGER, false);
+        }
+        // 失效行不注册换面热区（与"不画 pill"一致）：点击落入整行选中，不再发 SET_FACE。
+        if (!invalid) faceHits.add(new FaceHit(index, cx + COL_FACE - 2, ry + 3, COL_FACE_W + 4, 12));
 
         // IN/OUT badge (click to swap role), priority, filter, circular delete
         int bx = cx + COL_ROLE, pX = cx + COL_PRIORITY, fbX = cx + COL_FILTER, dbX = cx + COL_DELETE;
@@ -701,14 +762,18 @@ public class ChannelScreen extends Screen {
         memberBtns.add(new MemberBtn(index, 3, pX, ry + 3, COL_PRIORITY_W, 12));
     }
 
-    /** Same resolution rule the base screen always used: live pick-stack first, bound blockId fallback. */
+    /**
+     * 按端点状态解析图标：VALID=实时取（同维度，pick-stack + BE NBT）；INVALID=空（绝不回退到
+     * blockId 显示已破坏方块的旧图标）；UNKNOWN（跨维度/区块未加载）=blockId 兜底显示最后已知图标。
+     */
     private ItemStack endpointIcon(Member m) {
-        ItemStack icon = ItemStack.EMPTY;
-        if (this.minecraft.level != null && this.minecraft.level.dimension().location().equals(m.dim)) {
-            BlockState st = this.minecraft.level.getBlockState(m.pos);
-            Block blk = st.getBlock();
+        EndpointState st = endpointState(m);
+        if (st == EndpointState.INVALID) return ItemStack.EMPTY;
+        if (st == EndpointState.VALID) {
+            BlockState stt = this.minecraft.level.getBlockState(m.pos);
+            Block blk = stt.getBlock();
             if (blk != Blocks.AIR && blk.asItem() != Items.AIR) {
-                ItemStack pick = blk.getCloneItemStack(st,
+                ItemStack pick = blk.getCloneItemStack(stt,
                         new BlockHitResult(Vec3.atCenterOf(m.pos), m.face, m.pos, false),
                         this.minecraft.level, m.pos, this.minecraft.player);
                 if (pick.isEmpty()) pick = new ItemStack(blk.asItem());
@@ -720,17 +785,16 @@ public class ChannelScreen extends Screen {
                     beTag.remove("id");
                     BlockItem.setBlockEntityData(pick, be.getType(), beTag);
                 }
-                icon = pick;
+                return pick;
             }
+            return ItemStack.EMPTY;
         }
-        if (icon.isEmpty() && m.blockId != null) {
-            // BuiltInRegistries.BLOCK 是 DefaultedRegistry：查不到返回 AIR 而不是 null
+        // UNKNOWN：BuiltInRegistries.BLOCK 是 DefaultedRegistry：查不到返回 AIR 而不是 null
+        if (m.blockId != null) {
             Block blk = BuiltInRegistries.BLOCK.get(m.blockId);
-            if (blk != Blocks.AIR && blk.asItem() != Items.AIR) {
-                icon = new ItemStack(blk.asItem());
-            }
+            if (blk != Blocks.AIR && blk.asItem() != Items.AIR) return new ItemStack(blk.asItem());
         }
-        return icon;
+        return ItemStack.EMPTY;
     }
 
     // ============================================================ input
@@ -749,26 +813,27 @@ public class ChannelScreen extends Screen {
             if (c != null) minecraft.setScreen(new NameInputScreen(this, Lang.t(Lang.UI_RENAME), c.name == null ? "" : c.name, 0, c.id, null));
             return true;
         }
-        // Double-click a member's coordinate text → jump to that block: draw a see-through red frame in-world
-        // and close the GUI so the player can look at the highlighted block.
+        // 双击端点行的物品图标 / 维度色条区 → 跳转到世界方块：画透视红框并关 GUI。
+        // 单击该区不再被消费（落到下方整行选中逻辑）：单击=选中、双击=定位，两者共存。
         long now = System.currentTimeMillis();
-        for (PosHit ph : posHits) {
-            if (ix >= ph.x && ix <= ph.x + ph.w && iy >= ph.y && iy <= ph.y + ph.h) {
-                if (ph.index == lastDblIndex && now - lastDblTime < 350) {
+        for (JumpHit jh : jumpHits) {
+            if (ix >= jh.x && ix <= jh.x + jh.w && iy >= jh.y && iy <= jh.y + jh.h) {
+                if (jh.index == lastDblIndex && now - lastDblTime < 350) {
                     Channel c = findChannel(selectedChannel);
-                    if (c != null && ph.index < c.members.size()) {
-                        Member m = c.members.get(ph.index);
+                    if (c != null && jh.index < c.members.size()) {
+                        Member m = c.members.get(jh.index);
                         ClientChannelCache.INSTANCE.addHighlight(m.pos);
                         P2P.LOGGER.info("[p2p] jump-to-block highlight: {}", m.pos);
                         minecraft.setScreen(null);
                         return true;
                     }
                 }
-                lastDblIndex = ph.index;
+                lastDblIndex = jh.index;
                 lastDblTime = now;
-                return true;
+                break; // 单击：继续走整行选中
             }
         }
+        // 面列 = 专属控件：点击循环换面（SET_FACE），命中即消费，不落入整行选中
         for (FaceHit fh : faceHits) {
             if (ix >= fh.x && ix <= fh.x + fh.w && iy >= fh.y && iy <= fh.y + fh.h) {
                 Channel c = findChannel(selectedChannel);
@@ -788,9 +853,10 @@ public class ChannelScreen extends Screen {
                 return true;
             }
         }
-        // 端点行空白区（图标/维度色条/列间空隙）= 选中语义；表格内最后一行之下 = 清空。
-        // 行内控件（坐标双击跳转、面、IN/OUT、优先级、过滤、×）在上面各自的命中循环里已被消费，
-        // 不会走到这里，选中不会劫持控件点击。
+        // 端点行整行（含图标、维度色条、坐标、列间空隙）= 选中语义（1.3.1：真机反馈"有时点不中"，
+        // 命中区从列间空隙扩到整行）；表格内最后一行之下 = 清空。
+        // 行内专属控件（面列换面、IN/OUT 徽牌、优先级、过滤、×）在上面各自的命中循环里已被消费，
+        // 双击定位区单击也会落到这里（单击=选中、双击=定位），选中不会劫持控件点击。
         // 附属面板接管右栏时不画端点表，这里也必须让位（否则会在看不见的行上“盲选”）。
         Channel selCh = findChannel(selectedChannel);
         ChannelScreenExtension selExt = selCh == null ? null : extensionFor(selCh);
@@ -1185,8 +1251,8 @@ public class ChannelScreen extends Screen {
     private record LeftRow(int kind, int id, String label, Medium type, int color, boolean child) {}
     private record Hit(int x, int y, int w, int h, int kind, int id) {}
     private record MemberBtn(int index, int kind, int x, int y, int w, int h) {}
-    private record PosHit(int index, int x, int y, int w, int h) {}
-    private record DimHit(String dim, int x, int y, int w, int h) {}
+    private record JumpHit(int index, int x, int y, int w, int h) {}
+    private record DimHit(String dim, EndpointState state, int x, int y, int w, int h) {}
     private record FaceHit(int index, int x, int y, int w, int h) {}
     private record BlockHit(int index, int x, int y, int w, int h, ItemStack icon) {}
 }

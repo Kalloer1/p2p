@@ -59,8 +59,10 @@ public class NameInputScreen extends Screen {
         box.setTextColor(P2PTheme.TEXT_PRIMARY);
         box.setHint(Lang.t(Lang.UI_INPUT_HINT));
         box.setValue(initial);
-        box.setFocused(true);
         addRenderableWidget(box);
+        // 键盘输入走 Screen 级焦点（charTyped 发给 getFocused()），只调 box.setFocused(true)
+        // 打不了字；必须把 Screen 焦点也交给输入框，打开对话框即可直接输入。
+        this.setInitialFocus(box);
         okBtn = textButton(Lang.t(Lang.UI_OK), b -> confirm(), true);
         cancelBtn = textButton(Lang.t(Lang.UI_CANCEL), b -> minecraft.setScreen(parent), false);
     }

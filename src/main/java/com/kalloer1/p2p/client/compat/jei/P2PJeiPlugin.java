@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.kalloer1.p2p.client.screen.FilterEditor;
+import com.kalloer1.p2p.medium.Mediums;
 import mezz.jei.api.IModPlugin;
 import mezz.jei.api.JeiPlugin;
 import mezz.jei.api.constants.VanillaTypes;
@@ -43,6 +44,9 @@ public final class P2PJeiPlugin implements IModPlugin {
             public <I> List<Target<I>> getTargetsTyped(FilterEditor screen, ITypedIngredient<I> ingredient,
                                                         boolean doStart) {
                 if (!screen.isItemPage()) return List.of();
+                // 介质门卫：GAS 这类 addMarker 必然 no-op 的频道不放行（accept 是 void，
+                // JEI 视为已消费），否则会吞掉附属化学品插件对同一网格注册的目标。
+                if (screen.getType() != Mediums.ITEM && screen.getType() != Mediums.FLUID) return List.of();
                 ItemStack stack = ingredient.getIngredient(VanillaTypes.ITEM_STACK).orElse(null);
                 if (stack == null || stack.isEmpty()) return List.of();
                 Rect2i grid = screen.getMarkerGridArea();

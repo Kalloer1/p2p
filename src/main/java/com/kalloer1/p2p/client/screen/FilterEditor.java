@@ -173,32 +173,43 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     /** JEI ghost-drag may only drop an item onto the grid while the ITEM page is active. */
     public boolean isItemPage() { return page == Page.ITEM; }
 
-    /** Called by the JEI ghost handler and by clicking an inventory slot. */
-    public void addMarker(ItemStack stack) {
-        if (stack == null || stack.isEmpty()) return;
+    /**
+     * Called by the JEI ghost handler, the EMI drag-drop handler and by clicking an inventory slot.
+     *
+     * @return 是否真的写入了模板（物品页成功添加 / 流体频道成功转换出流体模板才 true）。
+     *         拖放 handler（EMI 等）据此决定是否消费这次拖放：false 时交还给后续 handler，
+     *         避免本体吞掉附属（如 compat 气体罐）的拖放路径。
+     */
+    public boolean addMarker(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
         if (chType == Mediums.ITEM) {
-            if (itemTpl.size() >= GRID_COLS * GRID_ROWS) return;
-            for (ItemStack s : itemTpl) if (ItemStack.isSameItem(s, stack)) return; // no duplicates
+            if (itemTpl.size() >= GRID_COLS * GRID_ROWS) return false;
+            for (ItemStack s : itemTpl) if (ItemStack.isSameItem(s, stack)) return false; // no duplicates
             ItemStack copy = stack.copy();
             copy.setCount(1);
             itemTpl.add(copy);
             syncGhost();
+            return true;
         } else if (chType == Mediums.FLUID) {
             // 流体频道里丢进来的物品按容器处理：能倒出流体就当作流体模板
-            addFluidMarker(FluidUtil.getFluidContained(stack).orElse(FluidStack.EMPTY));
+            return addFluidMarker(FluidUtil.getFluidContained(stack).orElse(FluidStack.EMPTY));
         }
+        return false;
     }
 
     /**
      * 直接加一条流体模板。JEI 的流体条目交过来的是 FluidStack 本身（不是装满的桶），
      * 所以流体拖拽必须走这里，不能再绕 addMarker(ItemStack)。
+     *
+     * @return 是否真的写入了流体模板。
      */
-    public void addFluidMarker(FluidStack fs) {
-        if (fs == null || fs.isEmpty()) return;
-        if (fluidTpl.size() >= GRID_COLS * GRID_ROWS) return;
-        for (FluidStack f : fluidTpl) if (f.getFluid() == fs.getFluid()) return;   // no duplicates
+    public boolean addFluidMarker(FluidStack fs) {
+        if (fs == null || fs.isEmpty()) return false;
+        if (fluidTpl.size() >= GRID_COLS * GRID_ROWS) return false;
+        for (FluidStack f : fluidTpl) if (f.getFluid() == fs.getFluid()) return false;   // no duplicates
         fluidTpl.add(new FluidStack(fs.getFluid(), 1000));
         syncGhost();
+        return true;
     }
 
     /** Mirror the template lists into the ghost container so vanilla renders them in the marker slots. */
