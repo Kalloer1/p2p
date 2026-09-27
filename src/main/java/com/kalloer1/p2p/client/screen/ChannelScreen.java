@@ -6,6 +6,7 @@ import com.kalloer1.p2p.api.ChannelScreenExtension;
 import com.kalloer1.p2p.api.ChannelScreenExtensions;
 import com.kalloer1.p2p.api.DetailContext;
 import com.kalloer1.p2p.channel.Channel;
+import com.kalloer1.p2p.channel.Filter;
 import com.kalloer1.p2p.channel.Group;
 import com.kalloer1.p2p.channel.Member;
 import com.kalloer1.p2p.channel.Network;
@@ -21,6 +22,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -70,14 +72,18 @@ public class ChannelScreen extends Screen {
     private static final int ROW_H = P2PTheme.ROW_H;
 
     // ---- endpoint columns, relative to the card's inner left edge ----
+    // 1.3.0 重排（真机反馈：旧几何里维度短名 25..43 会压进坐标列起点 40，坐标文本与
+    // 「主界」连成一串，表头整体错位）。现列宽重新分配且每列表头对齐本列内容：
+    // 色条 19、短名 26..44、坐标 46..96、面 98..112 居中、徽牌 116..138、
+    // 优先级 142、过滤 164..204、× 208..222（卡内右缘 228，无溢出）。
     private static final int COL_ICON = 0;
     private static final int COL_DIM = 19, COL_DIM_W = 4;
-    private static final int COL_DIM_TEXT = 25;
-    private static final int COL_POS = 40, COL_POS_W = 48;
-    private static final int COL_FACE = 92, COL_FACE_W = 14;
-    private static final int COL_ROLE = 112;
-    private static final int COL_PRIORITY = 138, COL_PRIORITY_W = 18;
-    private static final int COL_FILTER = 160, COL_FILTER_W = 40;
+    private static final int COL_DIM_TEXT = 26;
+    private static final int COL_POS = 46, COL_POS_W = 50;
+    private static final int COL_FACE = 98, COL_FACE_W = 14;
+    private static final int COL_ROLE = 116;
+    private static final int COL_PRIORITY = 142, COL_PRIORITY_W = 18;
+    private static final int COL_FILTER = 164, COL_FILTER_W = 40;
     private static final int COL_DELETE = 208;
 
     private int leftPos, topPos;
@@ -90,8 +96,24 @@ public class ChannelScreen extends Screen {
     private int currentNetId = -1;
 
     private int selectedChannel = -1;
-    private int selectedMember = -1;
     private int selectedGroup = -1;      // selectable group header; 删除组 targets it first
+
+    // ---- 端点选中（1.3.0 新功能，纯 client 端状态） ----
+    /** 多选集合，元素是 {@link Member#key()}；行内控件点击不改选区，只有行的空白区参与选中。 */
+    private final Set<String> selectedEndpoints = new HashSet<>();
+    /** Shift 范围选择的锚点行索引；-1 = 尚未建立锚点。 */
+    private int selAnchor = -1;
+    /** 最后一次交互选中的端点 key（Ctrl+C 复制它的配置；多选时即“最后选中”）。 */
+    private String selLastKey = null;
+
+    /**
+     * 端点配置剪贴板。static：复制来源允许跨频道（频道 A 复制 → 频道 B 粘贴），且界面
+     * 重开后仍保留；一次 Ctrl+V 的目标永远限定在当前频道内。过滤 tag 是完整序列化结果
+     * （含 addon 段），方向语义以粘贴目标为准。
+     */
+    private static CompoundTag clipFilterTag;
+    private static int clipPriority;
+    private static boolean clipInput;
 
     private final Set<Integer> openGroups = new HashSet<>();
     private EditBox searchBox;
@@ -140,11 +162,12 @@ public class ChannelScreen extends Screen {
         int bandY = topPos + BAND_TOP;
         int btnGap = 4;
         int btnW = (RIGHT_W - 5 * btnGap) / 6;              // row: 介质 + 红石/分配/分组/清理空气/区块加载
-        redstoneBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_REDSTONE, redstoneLabel(Channel.RedstoneMode.ALWAYS)), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_REDSTONE, 0)).bounds(rx, bandY, btnW, BAND_H)));
-        distBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DISTRIBUTION, distLabel(Channel.Distribution.ROUND_ROBIN)), b -> sendAction(ChannelActionC2SPacket.Action.CYCLE_DISTRIBUTION, 0)).bounds(rx + btnW + btnGap, bandY, btnW, BAND_H)));
-        groupBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_GROUP, groupLabel(-1)), b -> openGroupSelect()).bounds(rx + 2 * (btnW + btnGap), bandY, btnW, BAND_H)));
-        cleanBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_CLEAN_AIR), b -> sendAction(ChannelActionC2SPacket.Action.CLEAN_AIR, 0)).bounds(rx + 3 * (btnW + btnGap), bandY, btnW, BAND_H)));
-        chunkLoadBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_CHUNKLOAD_OFF), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_CHUNKLOAD, 0)).bounds(rx + 4 * (btnW + btnGap), bandY, btnW, BAND_H)));
+        // spec v1.1：配置 pill 只显短词标签，当前值放 tooltip（drawRight 里逐帧刷新），非默认态 TINT 提亮
+        redstoneBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_PILL_REDSTONE), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_REDSTONE, 0)).bounds(rx, bandY, btnW, BAND_H)));
+        distBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_PILL_DIST), b -> sendAction(ChannelActionC2SPacket.Action.CYCLE_DISTRIBUTION, 0)).bounds(rx + btnW + btnGap, bandY, btnW, BAND_H)));
+        groupBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_PILL_GROUP), b -> openGroupSelect()).bounds(rx + 2 * (btnW + btnGap), bandY, btnW, BAND_H)));
+        cleanBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_PILL_CLEAN), b -> sendAction(ChannelActionC2SPacket.Action.CLEAN_AIR, 0)).bounds(rx + 3 * (btnW + btnGap), bandY, btnW, BAND_H)));
+        chunkLoadBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_PILL_CHUNKLOAD), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_CHUNKLOAD, 0)).bounds(rx + 4 * (btnW + btnGap), bandY, btnW, BAND_H)));
         chunkLoadBtn.setStyle(P2PFlatButton.Style.TOGGLE);
         // 介质钮留在配置行而不是详情卡里：附属面板接管 44..204 全帧时它仍必须可点。
         typeBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_MEDIUM), b -> cycleType()).bounds(rx + RIGHT_W - 56, bandY, 56, BAND_H)));
@@ -286,7 +309,8 @@ public class ChannelScreen extends Screen {
             for (Group g : groups) if (g.id == selectedGroup) { gOk = true; break; }
             if (!gOk) selectedGroup = -1;
         }
-        selectedMember = -1;
+        // 快照刷新后端点集可能已变（键含坐标/面），旧选区整体失效
+        clearEndpointSelection();
         saveUiState();
         P2P.LOGGER.info("[p2p] ChannelScreen reparse: nets={} groups={} channels={} currentNet={} selected={}",
                 nets.size(), groups.size(), channels.size(), currentNetId, selectedChannel);
@@ -339,6 +363,9 @@ public class ChannelScreen extends Screen {
         drawLeft(gg);
         drawRight(gg);
         fitConfigRow();
+        // 面板脚注：端点多选 + 复制/粘贴的常驻提示（工具条已满，放面板最底行）
+        P2PTheme.drawCentered(gg, this.font, Lang.t(Lang.UI_ENDPOINT_HINT),
+                leftPos, topPos + H - 9, W, P2PTheme.TEXT_TERT);
     }
 
     /** Navigation row: network pill on the left, centred bold title, paging circles on the right. */
@@ -501,12 +528,20 @@ public class ChannelScreen extends Screen {
             return;
         }
 
-        // config reflects state
-        redstoneBtn.setMessage(Lang.t(Lang.UI_REDSTONE, redstoneLabel(c.redstoneMode)));
-        distBtn.setMessage(Lang.t(Lang.UI_DISTRIBUTION, distLabel(c.distribution)));
-        groupBtn.setMessage(Lang.t(Lang.UI_GROUP, groupLabel(c.groupId)));
-        // cleanBtn's message is static, so fitConfigRow's ellipsis would be permanent without this reset
-        cleanBtn.setMessage(Lang.t(Lang.UI_CLEAN_AIR));
+        // config reflects state — pill 只显短标签（spec v1.1），当前值进 tooltip，非默认态 TINT 提亮
+        redstoneBtn.setMessage(Lang.t(Lang.UI_PILL_REDSTONE));
+        redstoneBtn.setTooltip(Tooltip.create(Lang.t(Lang.UI_REDSTONE, redstoneLabel(c.redstoneMode))));
+        redstoneBtn.setHighlighted(c.redstoneMode != Channel.RedstoneMode.ALWAYS);
+        distBtn.setMessage(Lang.t(Lang.UI_PILL_DIST));
+        distBtn.setTooltip(Tooltip.create(Lang.t(Lang.UI_DISTRIBUTION, distLabel(c.distribution))));
+        distBtn.setHighlighted(c.distribution != Channel.Distribution.ROUND_ROBIN);
+        groupBtn.setMessage(Lang.t(Lang.UI_PILL_GROUP));
+        groupBtn.setTooltip(Tooltip.create(Lang.t(Lang.UI_GROUP, groupLabel(c.groupId))));
+        groupBtn.setHighlighted(c.groupId >= 0);
+        // cleanBtn 是动作钮没有状态，高亮恒为 false；tooltip 用原完整文案
+        cleanBtn.setMessage(Lang.t(Lang.UI_PILL_CLEAN));
+        cleanBtn.setTooltip(Tooltip.create(Lang.t(Lang.UI_CLEAN_AIR)));
+        cleanBtn.setHighlighted(false);
         typeBtn.setMessage(typeLabel(c.type));
         typeBtn.setChipColor(typeColor(c.type));
         typeBtn.setWidth(Math.min(this.font.width(typeLabel(c.type)) + 12, 56));
@@ -515,8 +550,10 @@ public class ChannelScreen extends Screen {
         Network net = null;
         for (Network nn : nets) if (nn.id == c.networkId) { net = nn; break; }
         boolean netLoad = net != null && net.chunkLoad;
-        chunkLoadBtn.setMessage(Lang.t(netLoad ? Lang.UI_CHUNKLOAD_ON : Lang.UI_CHUNKLOAD_OFF));
+        chunkLoadBtn.setMessage(Lang.t(Lang.UI_PILL_CHUNKLOAD));
+        chunkLoadBtn.setTooltip(Tooltip.create(Lang.t(netLoad ? Lang.UI_CHUNKLOAD_ON : Lang.UI_CHUNKLOAD_OFF)));
         chunkLoadBtn.setSelected(netLoad);
+        chunkLoadBtn.setHighlighted(netLoad);
         // rate / speed editable values (refresh the box text only when not actively typing)
         if (!rateEdit.isFocused() && !rateEdit.getValue().equals(String.valueOf(c.rate))) rateEdit.setValue(String.valueOf(c.rate));
         if (!speedEdit.isFocused() && !speedEdit.getValue().equals(String.valueOf(c.speed))) speedEdit.setValue(String.valueOf(c.speed));
@@ -536,14 +573,17 @@ public class ChannelScreen extends Screen {
         drawRateCard(gg, cx, c);
 
         // endpoint table (fixed-column layout so direction and IN/OUT line up regardless of coordinate width)
+        // 表头与列内容一一对齐：维度=色条+短名的块头，坐标=坐标文本起点，面/流向在本列居中
         int tableTop = topPos + TABLE_TOP;
         int rowsTop = tableTop + TABLE_HEAD;
         int tableBottom = topPos + FRAME_BOTTOM;
         P2PTheme.card(gg, rx, tableTop, RIGHT_W, tableBottom - tableTop);
         gg.drawString(this.font, Lang.t(Lang.UI_DIM), cx + COL_DIM, tableTop + 5, P2PTheme.TEXT_SECOND, false);
         gg.drawString(this.font, Lang.t(Lang.UI_POS), cx + COL_POS, tableTop + 5, P2PTheme.TEXT_SECOND, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_FACE), cx + COL_FACE, tableTop + 5, P2PTheme.TEXT_SECOND, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_FLOW), cx + COL_ROLE, tableTop + 5, P2PTheme.TEXT_SECOND, false);
+        Component faceHead = Lang.t(Lang.UI_FACE);
+        P2PTheme.drawCentered(gg, this.font, faceHead, cx + COL_FACE, tableTop + 5, COL_FACE_W, P2PTheme.TEXT_SECOND);
+        Component flowHead = Lang.t(Lang.UI_FLOW);
+        P2PTheme.drawCentered(gg, this.font, flowHead, cx + COL_ROLE, tableTop + 5, P2PTheme.BADGE_W, P2PTheme.TEXT_SECOND);
         Component cnt = Lang.t(Lang.UI_MEMBER_COUNT, c.members.size());
         gg.drawString(this.font, cnt, rx + RIGHT_W - P2PTheme.PAD - this.font.width(cnt), tableTop + 5, P2PTheme.TEXT_SECOND, false);
         gg.fill(rx + P2PTheme.PAD, rowsTop, rx + RIGHT_W - P2PTheme.PAD, rowsTop + 1, P2PTheme.SEPARATOR);
@@ -612,7 +652,8 @@ public class ChannelScreen extends Screen {
     }
 
     private void drawMemberRow(GuiGraphics gg, Member m, int index, int ry, int cx) {
-        boolean sel = index == selectedMember;
+        // 选中判定按 memberKey（多选集合），行内控件的点击语义不受选中影响
+        boolean sel = selectedEndpoints.contains(m.key());
         if (sel) P2PTheme.drawRoundRect(gg, cx - P2PTheme.PAD + 1, ry, RIGHT_W - 2, ROW_H, P2PTheme.R_CARD, P2PTheme.CARD_SEL);
         gg.fill(cx, ry + ROW_H - 1, cx + RIGHT_W - P2PTheme.PAD * 2, ry + ROW_H, P2PTheme.SEPARATOR);
 
@@ -747,6 +788,22 @@ public class ChannelScreen extends Screen {
                 return true;
             }
         }
+        // 端点行空白区（图标/维度色条/列间空隙）= 选中语义；表格内最后一行之下 = 清空。
+        // 行内控件（坐标双击跳转、面、IN/OUT、优先级、过滤、×）在上面各自的命中循环里已被消费，
+        // 不会走到这里，选中不会劫持控件点击。
+        // 附属面板接管右栏时不画端点表，这里也必须让位（否则会在看不见的行上“盲选”）。
+        Channel selCh = findChannel(selectedChannel);
+        ChannelScreenExtension selExt = selCh == null ? null : extensionFor(selCh);
+        if (selCh != null && (selExt == null || !selExt.replacesDefaultPanel(selCh))) {
+            int tRowsTop = topPos + TABLE_TOP + TABLE_HEAD;
+            int trx = leftPos + RIGHT_X;
+            if (ix >= trx && ix <= trx + RIGHT_W && iy >= tRowsTop && iy <= topPos + FRAME_BOTTOM) {
+                int idx = (iy - tRowsTop + memberScroll) / ROW_H;
+                if (idx >= 0 && idx < selCh.members.size()) selectEndpoint(selCh, idx);
+                else clearEndpointSelection();
+                return true;
+            }
+        }
         for (Hit h : leftRects) {
             if (ix >= h.x && ix <= h.x + h.w && iy >= h.y && iy <= h.y + h.h) {
                 if (h.kind == 0) {
@@ -754,8 +811,8 @@ public class ChannelScreen extends Screen {
                     selectedGroup = h.id;      // group headers are selectable; 删除组 targets them first
                 } else {
                     selectedChannel = h.id;
-                    selectedMember = -1;
                     selectedGroup = -1;
+                    clearEndpointSelection();  // 换频道后旧频道的选区整体失效
                 }
                 saveUiState();
                 return true;
@@ -780,10 +837,22 @@ public class ChannelScreen extends Screen {
 
     @Override
     public boolean keyPressed(int key, int scan, int mods) {
-        if (key == InputConstants.KEY_ESCAPE) { commitRate(); commitSpeed(); minecraft.setScreen(null); return true; }
+        if (key == InputConstants.KEY_ESCAPE) {
+            // Esc 先清空端点选区（spec：Esc=清空），没有选区才关闭界面
+            if (!selectedEndpoints.isEmpty()) { clearEndpointSelection(); return true; }
+            commitRate(); commitSpeed(); minecraft.setScreen(null); return true;
+        }
         if (key == InputConstants.KEY_RETURN || key == InputConstants.KEY_NUMPADENTER) {
             if (rateEdit.isFocused()) { commitRate(); rateEdit.setFocused(false); return true; }
             if (speedEdit.isFocused()) { commitSpeed(); speedEdit.setFocused(false); return true; }
+        }
+        // 端点多选快捷键：输入框聚焦时交给输入框（Ctrl+A 全选文本等语义优先）
+        boolean typing = (searchBox != null && searchBox.isFocused())
+                || rateEdit.isFocused() || speedEdit.isFocused();
+        if (!typing && Screen.hasControlDown()) {
+            if (key == InputConstants.KEY_C) { copyEndpointConfig(); return true; }
+            if (key == InputConstants.KEY_V) { pasteEndpointConfig(); return true; }
+            if (key == InputConstants.KEY_A) { selectAllEndpoints(); return true; }
         }
         return super.keyPressed(key, scan, mods);
     }
@@ -847,8 +916,8 @@ public class ChannelScreen extends Screen {
         if (nets.isEmpty()) return;
         netIndex = Math.max(0, Math.min(nets.size() - 1, netIndex + dir));
         selectedChannel = -1;
-        selectedMember = -1;
         selectedGroup = -1;
+        clearEndpointSelection();
         saveUiState();
     }
 
@@ -871,7 +940,95 @@ public class ChannelScreen extends Screen {
         if (c == null) return;
         ModMessages.sendToServer(new ChannelActionC2SPacket(c.id, ChannelActionC2SPacket.Action.REMOVE_MEMBER, null, 0, m.key(), false, null, ""));
         c.members.remove(m);
-        selectedMember = -1;
+        selectedEndpoints.remove(m.key());
+        if (m.key().equals(selLastKey)) selLastKey = null;
+    }
+
+    // ============================================================ endpoint selection + copy/paste
+    private void clearEndpointSelection() {
+        selectedEndpoints.clear();
+        selAnchor = -1;
+        selLastKey = null;
+    }
+
+    /**
+     * 单击行空白区：普通单击=单选替换；Ctrl+单击=增减多选；Shift+单击=从锚点行到当前行的
+     * 范围选中（配合 Ctrl 则追加范围）。行内控件的点击不会进入这里（已被控件命中消费）。
+     */
+    private void selectEndpoint(Channel c, int idx) {
+        String key = c.members.get(idx).key();
+        boolean ctrl = Screen.hasControlDown();
+        boolean shift = Screen.hasShiftDown();
+        if (shift && selAnchor >= 0 && selAnchor < c.members.size()) {
+            if (!ctrl) selectedEndpoints.clear();
+            for (int i = Math.min(selAnchor, idx); i <= Math.max(selAnchor, idx); i++)
+                selectedEndpoints.add(c.members.get(i).key());
+        } else if (ctrl) {
+            if (!selectedEndpoints.remove(key)) selectedEndpoints.add(key);
+        } else {
+            selectedEndpoints.clear();
+            selectedEndpoints.add(key);
+        }
+        selAnchor = idx;
+        selLastKey = key;
+    }
+
+    /** Ctrl+A：全选当前频道的所有端点。 */
+    private void selectAllEndpoints() {
+        Channel c = findChannel(selectedChannel);
+        if (c == null || c.members.isEmpty()) return;
+        for (Member m : c.members) selectedEndpoints.add(m.key());
+        selAnchor = -1;
+        if (selLastKey == null) selLastKey = c.members.get(0).key();
+    }
+
+    /**
+     * Ctrl+C：复制“最后选中”（多选时即最后一次点选；否则唯一选中）端点的配置 =
+     * 完整过滤 NBT（含 addon 段，原样序列化）+ 优先级 + 流向。剪贴板是 static 的，
+     * 允许在频道 A 复制、打开频道 B 再粘贴。
+     */
+    private void copyEndpointConfig() {
+        Channel c = findChannel(selectedChannel);
+        if (c == null || selectedEndpoints.isEmpty()) return;
+        Member src = null;
+        if (selLastKey != null)
+            for (Member m : c.members) if (m.key().equals(selLastKey)) { src = m; break; }
+        if (src == null)
+            for (Member m : c.members) if (selectedEndpoints.contains(m.key())) { src = m; break; }
+        if (src == null) { clearEndpointSelection(); return; }
+        Filter f = src.role == Role.INPUT ? src.extractFilter : src.insertFilter;
+        clipFilterTag = f == null ? null : f.serializeNBT(this.minecraft.level.registryAccess());
+        clipPriority = src.priority;
+        clipInput = src.role == Role.INPUT;
+        clipValid = true;
+    }
+
+    /** 剪贴板是否有内容可粘贴。 */
+    private static boolean clipValid = false;
+
+    /**
+     * Ctrl+V：把剪贴板配置应用到当前频道的所有选中端点。逐端点复用既有
+     * {@link ChannelActionC2SPacket}：SET_ROLE → SET_FILTER → SET_PRIORITY。
+     * 流向先落位、过滤器随后按「粘贴之后的目标方向」（extract 侧以目标为准）放进对应一侧，
+     * 这样来源 IN / 目标 OUT 的跨方向粘贴，过滤器最终仍在目标实际使用的那一侧生效。
+     * 目标全部来自当前频道成员，天然满足「一次粘贴只作用于同一频道」。
+     */
+    private void pasteEndpointConfig() {
+        Channel c = findChannel(selectedChannel);
+        if (c == null || selectedEndpoints.isEmpty() || !clipValid) return;
+        int roleOrd = clipInput ? Role.INPUT.ordinal() : Role.OUTPUT.ordinal();
+        for (Member m : c.members) {
+            if (!selectedEndpoints.contains(m.key())) continue;
+            ModMessages.sendToServer(new ChannelActionC2SPacket(c.id,
+                    ChannelActionC2SPacket.Action.SET_ROLE, null, roleOrd, m.key(), false, null, ""));
+            // 无过滤器的来源也要发（服务端把 null tag 解释为清空），
+            // 否则来源没配过滤时“粘贴配置”会静默丢掉“清除目标旧过滤”这半边语义。
+            ModMessages.sendToServer(new ChannelActionC2SPacket(c.id,
+                    ChannelActionC2SPacket.Action.SET_FILTER, null, 0, m.key(), clipInput,
+                    clipFilterTag == null ? null : clipFilterTag.copy(), ""));
+            ModMessages.sendToServer(new ChannelActionC2SPacket(c.id,
+                    ChannelActionC2SPacket.Action.SET_PRIORITY, null, clipPriority, m.key(), false, null, ""));
+        }
     }
 
     // ============================================================ helpers

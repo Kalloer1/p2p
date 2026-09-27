@@ -38,3 +38,6 @@ run/
 **/src/generated/**/.cache/
 repo/
 !**/src/**/repo/
+
+### 本地依赖 jar（查看器 API compileOnly，不入库） ###
+libs/

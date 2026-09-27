@@ -49,7 +49,9 @@ import java.util.List;
  *  - 27 个标记槽（9x3）与玩家背包/快捷栏都是真正的 {@link Slot}，所以原版负责物品绘制、
  *    悬停高亮与物品 tooltip；只有 ITEM 页激活，TAG / NBT 页所有槽位置灰。
  *  - 因为它是 AbstractContainerScreen，JEI 认得 GUI 边界并在两侧显示物品列表；拖入标记网格由
- *    本地 JEI 插件（附属）提供，p2p 本体不编译依赖 JEI API。
+ *    本体自带的 JEI 插件（{@code client.compat.jei.P2PJeiPlugin}，物品 → 27 个幽灵槽位）与
+ *    EMI 插件（{@code client.compat.emi.P2PEmiPlugin}，EmiStack 物品 → 网格区域）提供，
+ *    两个 API 都只是 compileOnly，查看器不在场时对应插件类根本不会被加载。
  *  - 菜单是纯客户端的（无 MenuType、从不注册、从不同步），每个槽只读且 {@link #slotClicked}
  *    被完全覆写，因此永远不会产生容器包；过滤器只在按「完成」时以一条 SET_FILTER 提交。
  *
@@ -58,8 +60,9 @@ import java.util.List;
  */
 public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMenu> {
 
-    /** 面板尺寸（规格 §4：184x264，原 176x250）。 */
-    static final int SLOT = 18, GRID_COLS = 9, GRID_ROWS = 3;
+    /** 面板尺寸（规格 §4：184x264，原 176x250）。GRID_* 为 public：JEI/EMI 插件据此推算幽灵槽位。 */
+    static final int SLOT = 18;
+    public static final int GRID_COLS = 9, GRID_ROWS = 3;
 
     // 内容卡（segmented / 内容底板 / 模式行）统一内边距 8，宽 168
     private static final int CARD_X = 8, CARD_W = 168;

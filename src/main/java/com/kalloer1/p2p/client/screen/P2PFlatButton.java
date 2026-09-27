@@ -34,6 +34,8 @@ public class P2PFlatButton extends Button {
     /** true = 该控件是其分组里的当前选择（页签）。 */
     private boolean selected;
     private boolean danger;
+    /** 非默认态提亮：标签恒为 TINT（spec v1.1：红石≠忽略等状态不开 tooltip 也能看出来）。 */
+    private boolean highlighted;
     private int chipColor = P2PTheme.FIELD_BG;
 
     public P2PFlatButton(Builder builder) {
@@ -59,6 +61,12 @@ public class P2PFlatButton extends Button {
     /** 文本钮是否为危险操作（红字）。 */
     public P2PFlatButton setDanger(boolean danger) {
         this.danger = danger;
+        return this;
+    }
+
+    /** 非默认态提亮：标签恒为 TINT（pill / toggle 样式生效）。 */
+    public P2PFlatButton setHighlighted(boolean highlighted) {
+        this.highlighted = highlighted;
         return this;
     }
 
@@ -94,7 +102,11 @@ public class P2PFlatButton extends Button {
                 P2PTheme.pillBackground(gg, x, y, w, h, hovered && active, active);
                 int switchX = x + w - P2PTheme.TOGGLE_W - 2;
                 P2PTheme.toggle(gg, switchX, y + (h - P2PTheme.TOGGLE_H) / 2, selected);
-                if (label != null) gg.drawString(f, label, x + 6, textY, P2PTheme.pillInk(active), false);
+                if (label != null) {
+                    int ink = !active ? P2PTheme.TEXT_TERT
+                            : (highlighted ? P2PTheme.TINT : P2PTheme.pillInk(active));
+                    gg.drawString(f, label, x + 6, textY, ink, false);
+                }
             }
             case SEGMENT -> {
                 int ink = !active ? P2PTheme.TEXT_TERT : (selected ? P2PTheme.TINT : P2PTheme.TEXT_SECOND);
@@ -131,7 +143,7 @@ public class P2PFlatButton extends Button {
                 P2PTheme.pillBackground(gg, x, y, w, h, (hovered && active) || selected, active);
                 if (label != null) {
                     int ink = !active ? P2PTheme.TEXT_TERT
-                            : (selected || hovered ? P2PTheme.TINT : P2PTheme.TEXT_PRIMARY);
+                            : (selected || highlighted || hovered ? P2PTheme.TINT : P2PTheme.TEXT_PRIMARY);
                     gg.drawString(f, label, x + (w - f.width(label)) / 2, textY, ink, false);
                 }
             }

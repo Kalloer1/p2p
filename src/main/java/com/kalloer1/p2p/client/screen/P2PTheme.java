@@ -139,11 +139,12 @@ public final class P2PTheme {
     }
 
     // ==================== 文字 ====================
-    /** 标题：双向偏移阴影模拟加粗（不引字体文件）。 */
+    /**
+     * 标题：单次绘制 + 原版阴影（spec v1.1 修订：汉字位图字体多次叠绘不合并、产生重影，
+     * 双向偏移模拟加粗的画法已废除，签名保持不变所以调用点零改动）。
+     */
     public static void drawStringBold(GuiGraphics gg, Font font, Component text, int x, int y, int color) {
-        gg.drawString(font, text, x + 1, y, color, false);
-        gg.drawString(font, text, x, y + 1, color, false);
-        gg.drawString(font, text, x, y, color, false);
+        gg.drawString(font, text, x, y, color, true);
     }
 
     /** 标题居中加粗。 */
@@ -156,9 +157,13 @@ public final class P2PTheme {
     }
 
     // ==================== 组件 ====================
-    /** iOS toggle：OFF=FIELD_BG，ON=SUCCESS，滑块 12x12 白。 */
+    /**
+     * iOS toggle：OFF=FIELD_BG，ON=SUCCESS，滑块 12x12 白。整体 24x14 与滑块尺寸不变，
+     * 轨道四周留 1px SEPARATOR 描边——OFF 态的浅灰轨道直接放在白卡上几乎不可见（真机反馈）。
+     */
     public static void toggle(GuiGraphics gg, int x, int y, boolean on) {
-        drawPill(gg, x, y, TOGGLE_W, TOGGLE_H, on ? SUCCESS : FIELD_BG);
+        drawPill(gg, x, y, TOGGLE_W, TOGGLE_H, SEPARATOR);          // 1px 描边（外圈）
+        drawPill(gg, x + 1, y + 1, TOGGLE_W - 2, TOGGLE_H - 2, on ? SUCCESS : FIELD_BG);
         int knobY = y + (TOGGLE_H - TOGGLE_KNOB) / 2;
         int knobX = on ? x + TOGGLE_W - TOGGLE_KNOB - 1 : x + 1;
         drawRoundRect(gg, knobX, knobY, TOGGLE_KNOB, TOGGLE_KNOB, TOGGLE_KNOB / 2, CARD);
@@ -211,12 +216,15 @@ public final class P2PTheme {
         drawPill(gg, x, y, BADGE_W, BADGE_H, input ? DANGER : TINT);
     }
 
-    /** 圆形删除×：14x14 DANGER 底 + 白色对角线。 */
+    /**
+     * 圆形删除×：14x14 DANGER 底 + 白色 ×。旧版两段对角线的圆心偏到了 (9, 7.5)，
+     * 小尺寸下看起来像 »；改为以圆心 (7,7) 对称、各 7px 的两条对角线（覆盖 y+4..y+10）。
+     */
     public static void deleteCross(GuiGraphics gg, int x, int y, boolean pressed) {
         drawRoundRect(gg, x, y, CIRCLE, CIRCLE, CIRCLE / 2, pressed ? DANGER_DARK : DANGER);
-        for (int i = -2; i <= 2; i++) {
-            gg.fill(x + 7 + i, y + 5 + i, x + 8 + i, y + 6 + i, CARD);
-            gg.fill(x + 7 + i, y + 9 - i, x + 8 + i, y + 10 - i, CARD);
+        for (int i = -3; i <= 3; i++) {
+            gg.fill(x + 7 + i, y + 7 + i, x + 8 + i, y + 8 + i, CARD);
+            gg.fill(x + 7 + i, y + 7 - i, x + 8 + i, y + 8 - i, CARD);
         }
     }
 

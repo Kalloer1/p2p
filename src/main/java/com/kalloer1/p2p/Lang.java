@@ -50,6 +50,15 @@ public final class Lang {
     public static final String UI_GROUP_NONE = "p2p.ui.group_none";
     public static final String UI_NO_MATCH = "p2p.ui.no_match";
 
+    // ---- 配置 pill 短标签（spec v1.1：pill 只显短词，值进 tooltip，非默认态 TINT 提亮） ----
+    public static final String UI_PILL_REDSTONE = "p2p.ui.pill.redstone";
+    public static final String UI_PILL_DIST = "p2p.ui.pill.dist";
+    public static final String UI_PILL_GROUP = "p2p.ui.pill.group";
+    public static final String UI_PILL_CLEAN = "p2p.ui.pill.clean";
+    public static final String UI_PILL_CHUNKLOAD = "p2p.ui.pill.chunkload";
+    /** 面板脚注：端点多选 + 复制/粘贴提示。 */
+    public static final String UI_ENDPOINT_HINT = "p2p.ui.endpoint_hint";
+
     // ---- channel type ----
     public static final String UI_TYPE_ITEM = "p2p.ui.type.item";
     public static final String UI_TYPE_FLUID = "p2p.ui.type.fluid";
