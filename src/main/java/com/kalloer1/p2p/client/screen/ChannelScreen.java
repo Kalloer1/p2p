@@ -11,7 +11,6 @@ import com.kalloer1.p2p.channel.Member;
 import com.kalloer1.p2p.channel.Network;
 import com.kalloer1.p2p.channel.Role;
 import com.kalloer1.p2p.client.ClientChannelCache;
-import com.kalloer1.p2p.client.screen.P2PGuiTextures;
 import com.kalloer1.p2p.medium.Medium;
 import com.kalloer1.p2p.medium.Mediums;
 import com.kalloer1.p2p.network.ChannelActionC2SPacket;
@@ -19,7 +18,6 @@ import com.kalloer1.p2p.network.ModMessages;
 import com.kalloer1.p2p.network.RequestChannelsC2SPacket;
 import com.kalloer1.p2p.network.SetBindChannelC2SPacket;
 import com.mojang.blaze3d.platform.InputConstants;
-import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -46,22 +44,41 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Pure-client configuration screen (384×208 panel + 16px top tab = 224 total, within the 232px ceiling).
- * Left: search + group tree + named channel list. Right: selected channel detail with an endpoint table.
- * Endpoints expose a clear "过滤" button (no hidden double-click) and an "⇄" IN/OUT toggle that is sent
+ * Pure-client configuration screen on the 1.2.0 iOS geometry contract: a single 408x240 panel whose first
+ * 20px row is the navigation bar (the 16px top tab strip is gone), a 140-wide channel list on the left,
+ * a 244-wide detail column on the right and a 20px toolbar at the bottom. All sizes come from
+ * .grill-research/ios-ui-spec.md section 4 and are mirrored by {@link DetailContext} for per-medium panels.
+ *
+ * <p>Endpoints expose a clear "过滤" button (no hidden double-click) and an IN/OUT badge that is sent
  * straight to the server (SET_ROLE). The face/direction of an endpoint is world-bound and labelled as such.
- * The top tab shows the current network and lets the player page between visible networks.
  */
 public class ChannelScreen extends Screen {
 
-    private static final int W = 384;
-    private static final int H = 208; // panel; +16 top tab = 224 total, within 232 ceiling
+    private static final int W = 408;
+    private static final int H = 240;
 
-    // ---- palette (MC stone) ----
-    private static final int STONE = P2PGuiTextures.ROW_BG, HI = P2PGuiTextures.FAUX_HI, SH = P2PGuiTextures.FAUX_SH;
-    private static final int LEFT_BG = P2PGuiTextures.ROW_BG, RIGHT_BG = P2PGuiTextures.ROW_BG2, SEL = P2PGuiTextures.SEL, GRP_BG = P2PGuiTextures.GRP_BG, TAB = P2PGuiTextures.TAB_BG;
-    private static final int INK = P2PGuiTextures.INK, INK_DIM = P2PGuiTextures.INK_DIM, TITLE = P2PGuiTextures.TITLE;
-    private static final int IN_C = 0xFFd93a3a, OUT_C = 0xFF3a7ad9; // INPUT=red, OUTPUT=blue
+    // ---- section geometry (ios-ui-spec.md §4) ----
+    private static final int NAV_H = P2PTheme.NAV_H;              // 0..20
+    private static final int BAND_TOP = 20, BAND_H = 14;          // search + config pills: 20..34
+    private static final int LEFT_X = 8, LEFT_W = 140;
+    private static final int RIGHT_X = 156, RIGHT_W = 244;
+    private static final int FRAME_TOP = 44, FRAME_BOTTOM = 204;  // left list + right detail + addon frame
+    private static final int HEAD_TOP = 44, HEAD_H = 18;          // header card
+    private static final int RATE_TOP = 70, RATE_ROW = 18;        // rate + throttle card (70..106)
+    private static final int TABLE_TOP = 114, TABLE_HEAD = 16;    // endpoint card (114..204)
+    private static final int TOOLBAR_TOP = 212, TOOLBAR_H = P2PTheme.TOOLBAR_H;
+    private static final int ROW_H = P2PTheme.ROW_H;
+
+    // ---- endpoint columns, relative to the card's inner left edge ----
+    private static final int COL_ICON = 0;
+    private static final int COL_DIM = 19, COL_DIM_W = 4;
+    private static final int COL_DIM_TEXT = 25;
+    private static final int COL_POS = 40, COL_POS_W = 48;
+    private static final int COL_FACE = 92, COL_FACE_W = 14;
+    private static final int COL_ROLE = 112;
+    private static final int COL_PRIORITY = 138, COL_PRIORITY_W = 18;
+    private static final int COL_FILTER = 160, COL_FILTER_W = 40;
+    private static final int COL_DELETE = 208;
 
     private int leftPos, topPos;
     private CompoundTag lastData = null;
@@ -104,56 +121,61 @@ public class ChannelScreen extends Screen {
     @Override
     protected void init() {
         leftPos = (this.width - W) / 2;
-        topPos = (this.height - H) / 2;   // top tab drawn at topPos-16
+        topPos = (this.height - H) / 2;
         // restore the last GUI state across reopen (selected channel/group, expanded groups)
         selectedChannel = ClientChannelCache.INSTANCE.getSelectedChannelId();
         selectedGroup = ClientChannelCache.INSTANCE.getSelectedGroupId();
         openGroups.clear();
         openGroups.addAll(ClientChannelCache.INSTANCE.getOpenGroups());
 
-        int lx = leftPos + 4, lw = 140;
-        searchBox = new EditBox(this.font, lx + 4, topPos + 8, lw - 12, 14, Lang.t(Lang.UI_SEARCH));
+        int lx = leftPos + LEFT_X;
+        searchBox = new EditBox(this.font, lx + 16, topPos + BAND_TOP + 1, LEFT_W - 24, 12, Lang.t(Lang.UI_SEARCH));
         searchBox.setMaxLength(32);
-        searchBox.setBordered(true);
+        searchBox.setBordered(false);
+        searchBox.setTextColor(P2PTheme.TEXT_PRIMARY);
+        searchBox.setHint(Lang.t(Lang.UI_SEARCH));
         addRenderableWidget(searchBox);
 
-        int rx = leftPos + 148, rw = W - 148 - 4;
+        int rx = leftPos + RIGHT_X;
+        int bandY = topPos + BAND_TOP;
         int btnGap = 4;
-        int btnW = (rw - 4 * btnGap) / 5;              // row: 红石/分配/分组/清理空气/区块加载 — five unified buttons
-        redstoneBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_REDSTONE, redstoneLabel(Channel.RedstoneMode.ALWAYS)), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_REDSTONE, 0)).bounds(rx, topPos + 30, btnW, 18)));
-        distBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DISTRIBUTION, distLabel(Channel.Distribution.ROUND_ROBIN)), b -> sendAction(ChannelActionC2SPacket.Action.CYCLE_DISTRIBUTION, 0)).bounds(rx + btnW + btnGap, topPos + 30, btnW, 18)));
-        groupBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_GROUP, groupLabel(-1)), b -> openGroupSelect()).bounds(rx + 2 * (btnW + btnGap), topPos + 30, btnW, 18)));
-        cleanBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_CLEAN_AIR), b -> sendAction(ChannelActionC2SPacket.Action.CLEAN_AIR, 0)).bounds(rx + 3 * (btnW + btnGap), topPos + 30, btnW, 18)));
-        chunkLoadBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_CHUNKLOAD_OFF), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_CHUNKLOAD, 0)).bounds(rx + 4 * (btnW + btnGap), topPos + 30, btnW, 18)));
+        int btnW = (RIGHT_W - 5 * btnGap) / 6;              // row: 介质 + 红石/分配/分组/清理空气/区块加载
+        redstoneBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_REDSTONE, redstoneLabel(Channel.RedstoneMode.ALWAYS)), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_REDSTONE, 0)).bounds(rx, bandY, btnW, BAND_H)));
+        distBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DISTRIBUTION, distLabel(Channel.Distribution.ROUND_ROBIN)), b -> sendAction(ChannelActionC2SPacket.Action.CYCLE_DISTRIBUTION, 0)).bounds(rx + btnW + btnGap, bandY, btnW, BAND_H)));
+        groupBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_GROUP, groupLabel(-1)), b -> openGroupSelect()).bounds(rx + 2 * (btnW + btnGap), bandY, btnW, BAND_H)));
+        cleanBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_CLEAN_AIR), b -> sendAction(ChannelActionC2SPacket.Action.CLEAN_AIR, 0)).bounds(rx + 3 * (btnW + btnGap), bandY, btnW, BAND_H)));
+        chunkLoadBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_CHUNKLOAD_OFF), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_CHUNKLOAD, 0)).bounds(rx + 4 * (btnW + btnGap), bandY, btnW, BAND_H)));
+        chunkLoadBtn.setStyle(P2PFlatButton.Style.TOGGLE);
+        // 介质钮留在配置行而不是详情卡里：附属面板接管 44..204 全帧时它仍必须可点。
+        typeBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_MEDIUM), b -> cycleType()).bounds(rx + RIGHT_W - 56, bandY, 56, BAND_H)));
+        typeBtn.setStyle(P2PFlatButton.Style.CHIP);
 
         // rate: editable value + fine step + unit
-        rateEdit = new EditBox(this.font, rx + 24, topPos + 48, 46, 14, Component.literal(""));
+        rateEdit = new EditBox(this.font, rxF() + 48, topPos + RATE_TOP + 3, 30, 12, Component.literal(""));
         rateEdit.setMaxLength(10);
-        rateEdit.setBordered(true);
-        rateEdit.setTextColor(0xFFFFFFFF);
+        rateEdit.setBordered(false);
+        rateEdit.setTextColor(P2PTheme.TEXT_PRIMARY);
         addRenderableWidget(rateEdit);
-        rateDown = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("-"), b -> stepRate(-16)).bounds(rx + 74, topPos + 48, 18, 16)));
-        rateUp = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("+"), b -> stepRate(16)).bounds(rx + 92, topPos + 48, 18, 16)));
-        maxRateBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_RATE_MAX), b -> sendAction(ChannelActionC2SPacket.Action.SET_RATE, ChannelActionC2SPacket.RATE_MAX)).bounds(rx + 112, topPos + 48, 34, 16)));
+        rateDown = stepper("-", b -> stepRate(-16), rxF() + 30, topPos + RATE_TOP + 2);
+        rateUp = stepper("+", b -> stepRate(16), rxF() + 82, topPos + RATE_TOP + 2);
+        maxRateBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_RATE_MAX), b -> sendAction(ChannelActionC2SPacket.Action.SET_RATE, ChannelActionC2SPacket.RATE_MAX)).bounds(rxF() + 100, topPos + RATE_TOP + 2, 28, 14)));
 
         // speed (throttle): how many ticks between passes
-        speedEdit = new EditBox(this.font, rx + 24, topPos + 66, 46, 14, Component.literal(""));
+        speedEdit = new EditBox(this.font, rxF() + 48, topPos + RATE_TOP + RATE_ROW + 3, 30, 12, Component.literal(""));
         speedEdit.setMaxLength(7);
-        speedEdit.setBordered(true);
-        speedEdit.setTextColor(0xFFFFFFFF);
+        speedEdit.setBordered(false);
+        speedEdit.setTextColor(P2PTheme.TEXT_PRIMARY);
         addRenderableWidget(speedEdit);
-        speedDown = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("-"), b -> stepSpeed(-1)).bounds(rx + 74, topPos + 66, 18, 16)));
-        speedUp = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("+"), b -> stepSpeed(1)).bounds(rx + 92, topPos + 66, 18, 16)));
+        speedDown = stepper("-", b -> stepSpeed(-1), rxF() + 30, topPos + RATE_TOP + RATE_ROW + 2);
+        speedUp = stepper("+", b -> stepSpeed(1), rxF() + 82, topPos + RATE_TOP + RATE_ROW + 2);
 
-        bindBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_BIND_CHANNEL), b -> {
-            if (selectedChannel >= 0) ModMessages.sendToServer(new SetBindChannelC2SPacket(selectedChannel));
-        }).bounds(rx, topPos + H - 22, (rw - 8) / 2, 18)));
-        deleteBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DELETE_CHANNEL).withStyle(ChatFormatting.RED), b -> sendAction(ChannelActionC2SPacket.Action.DELETE, 0)).bounds(rx + (rw - 8) / 2 + 8, topPos + H - 22, (rw - 8) / 2, 18)));
-
-        int btnL = (lw - 2 * btnGap) / 3;              // bottom-left row: 新建频道/新建组/删除组 — unified size
-        createCh = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_NEW_CHANNEL), b -> minecraft.setScreen(new ChannelCreateScreen(this))).bounds(lx, topPos + H - 22, btnL, 18)));
-        createGrp = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_NEW_GROUP), b -> minecraft.setScreen(new NameInputScreen(this, Lang.t(Lang.UI_NEW_GROUP), "", 1, -1, null))).bounds(lx + btnL + btnGap, topPos + H - 22, btnL, 18)));
-        deleteGrpBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DELETE_GROUP).withStyle(ChatFormatting.RED), b -> {
+        int toolbarY = topPos + TOOLBAR_TOP + (TOOLBAR_H - BAND_H) / 2;
+        bindBtn = addRenderableWidget(textButton(Lang.t(Lang.UI_BIND_CHANNEL), false,
+                b -> { if (selectedChannel >= 0) ModMessages.sendToServer(new SetBindChannelC2SPacket(selectedChannel)); },
+                leftPos + W / 2 - 30, toolbarY));
+        deleteBtn = addRenderableWidget(textButton(Lang.t(Lang.UI_DELETE_CHANNEL), true,
+                b -> sendAction(ChannelActionC2SPacket.Action.DELETE, 0), leftPos + RIGHT_X + RIGHT_W - 66, toolbarY));
+        deleteGrpBtn = addRenderableWidget(textButton(Lang.t(Lang.UI_DELETE_GROUP), true, b -> {
             int targetGrp = selectedGroup;
             if (targetGrp < 0) {
                 Channel gc = findChannel(selectedChannel);
@@ -164,14 +186,62 @@ public class ChannelScreen extends Screen {
                 selectedGroup = -1;
                 saveUiState();
             }
-        }).bounds(lx + 2 * (btnL + btnGap), topPos + H - 22, btnL, 18)));
+        }, leftPos + RIGHT_X + RIGHT_W - 66 - 54, toolbarY));
 
-        prevNet = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("<"), b -> pageNet(-1)).bounds(leftPos + W - 56, topPos - 16 + 1, 18, 14)));
-        nextNet = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal(">"), b -> pageNet(1)).bounds(leftPos + W - 36, topPos - 16 + 1, 18, 14)));
+        createCh = addRenderableWidget(textButton(Lang.t(Lang.UI_NEW_CHANNEL), false,
+                b -> minecraft.setScreen(new ChannelCreateScreen(this)), lx + 6, toolbarY));
+        createGrp = addRenderableWidget(textButton(Lang.t(Lang.UI_NEW_GROUP), false,
+                b -> minecraft.setScreen(new NameInputScreen(this, Lang.t(Lang.UI_NEW_GROUP), "", 1, -1, null)), lx + 6, toolbarY));
+        layoutToolbar();
 
-        typeBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_MEDIUM), b -> cycleType()).bounds(rx + rw - 70, topPos + 10, 66, 14)));
+        prevNet = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("<"), b -> pageNet(-1)).bounds(leftPos + W - 8 - 2 * 16, topPos + (NAV_H - 14) / 2, 14, 14)));
+        nextNet = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal(">"), b -> pageNet(1)).bounds(leftPos + W - 8 - 16, topPos + (NAV_H - 14) / 2, 14, 14)));
+        prevNet.setStyle(P2PFlatButton.Style.CIRCLE);
+        nextNet.setStyle(P2PFlatButton.Style.CIRCLE);
 
         ModMessages.sendToServer(new RequestChannelsC2SPacket());
+    }
+
+    /** Right column inner content x (8px card padding). */
+    private int rxF() { return leftPos + RIGHT_X + P2PTheme.PAD; }
+
+    private P2PFlatButton stepper(String glyph, Button.OnPress action, int x, int y) {
+        P2PFlatButton b = new P2PFlatButton(Button.builder(Component.literal(glyph), action).bounds(x, y, 14, 14));
+        b.setStyle(P2PFlatButton.Style.STEPPER);
+        return addRenderableWidget(b);
+    }
+
+    private P2PFlatButton textButton(Component label, boolean danger, Button.OnPress action, int x, int y) {
+        P2PFlatButton b = new P2PFlatButton(Button.builder(label, action).bounds(x, y, this.font.width(label) + 12, BAND_H));
+        b.setStyle(P2PFlatButton.Style.TEXT);
+        b.setDanger(danger);
+        return b;
+    }
+
+    /**
+     * Toolbar text buttons are laid out right where they belong: creation on the left, binding centred,
+     * destructive actions right-aligned. Recomputed once because all five labels are static.
+     */
+    private void layoutToolbar() {
+        int y = topPos + TOOLBAR_TOP + (TOOLBAR_H - BAND_H) / 2;
+        int gap = 6;
+        int x = leftPos + LEFT_X + 6;
+        for (P2PFlatButton b : new P2PFlatButton[]{createCh, createGrp}) {
+            int w = this.font.width(b.getMessage()) + 12;
+            b.setX(x); b.setY(y); b.setWidth(w);
+            x += w + gap;
+        }
+        int right = leftPos + RIGHT_X + RIGHT_W - 6;
+        for (P2PFlatButton b : new P2PFlatButton[]{deleteBtn, deleteGrpBtn}) {
+            int w = this.font.width(b.getMessage()) + 12;
+            right -= w;
+            b.setX(right); b.setY(y); b.setWidth(w);
+            right -= gap;
+        }
+        int bw = this.font.width(bindBtn.getMessage()) + 12;
+        bindBtn.setX(leftPos + (W - bw) / 2);
+        bindBtn.setY(y);
+        bindBtn.setWidth(bw);
     }
 
     // ============================================================ data
@@ -211,13 +281,13 @@ public class ChannelScreen extends Screen {
             if (c.networkId == currentNetId) channels.add(c);
         }
         if (findChannel(selectedChannel) == null) selectedChannel = channels.isEmpty() ? -1 : channels.get(0).id;
-                if (selectedGroup >= 0) {
-                    boolean gOk = false;
-                    for (Group g : groups) if (g.id == selectedGroup) { gOk = true; break; }
-                    if (!gOk) selectedGroup = -1;
-                }
-                selectedMember = -1;
-                saveUiState();
+        if (selectedGroup >= 0) {
+            boolean gOk = false;
+            for (Group g : groups) if (g.id == selectedGroup) { gOk = true; break; }
+            if (!gOk) selectedGroup = -1;
+        }
+        selectedMember = -1;
+        saveUiState();
         P2P.LOGGER.info("[p2p] ChannelScreen reparse: nets={} groups={} channels={} currentNet={} selected={}",
                 nets.size(), groups.size(), channels.size(), currentNetId, selectedChannel);
     }
@@ -262,39 +332,41 @@ public class ChannelScreen extends Screen {
     }
 
     private void drawPanel(GuiGraphics gg) {
-        int x = leftPos, y = topPos;
-        gg.fill(0, 0, this.width, this.height, 0x66000000);
-
-        // top tab (drawn above the panel)
-        int ty = y - 16;
-        gg.fill(x, ty, x + W, ty + 16, TAB);
-        gg.fill(x, ty, x + W, ty + 1, HI);
-        gg.drawString(this.font, Lang.t(Lang.UI_TITLE), x + 6, ty + 4, TITLE, false);
-        if (!nets.isEmpty()) {
-            String nm = trim(nets.get(netIndex).name, 200);
-            int nmX = x + W / 2 - this.font.width(nm) / 2;
-            gg.drawString(this.font, Component.literal(nm), nmX, ty + 4, 0xFFB8BEC4, false);
-            gg.drawString(this.font, Component.literal("▾"), nmX + this.font.width(nm) + 4, ty + 4, 0xFFB8BEC4, false);
-            netNameHitX = nmX; netNameHitW = this.font.width(nm) + 12; netNameHitValid = true;
-        } else netNameHitValid = false;
-        // main panel from atlas (9-slice)
-        P2PGuiTextures.panel(gg, x, y, W, H);
+        gg.fill(0, 0, this.width, this.height, P2PTheme.BG_OVERLAY);
+        P2PTheme.drawRoundRect(gg, leftPos, topPos, W, H, P2PTheme.R_DIALOG, P2PTheme.BG_GROUP);
+        drawNav(gg);
 
         drawLeft(gg);
         drawRight(gg);
         fitConfigRow();
     }
 
+    /** Navigation row: network pill on the left, centred bold title, paging circles on the right. */
+    private void drawNav(GuiGraphics gg) {
+        int y = topPos + (NAV_H - BAND_H) / 2;
+        netNameHitValid = false;
+        if (!nets.isEmpty()) {
+            String nm = trim(nets.get(netIndex).name, 96);
+            int w = this.font.width(nm) + 24;
+            P2PTheme.pillBackground(gg, leftPos + LEFT_X, y, w, BAND_H, false, true);
+            gg.drawString(this.font, Component.literal(nm), leftPos + LEFT_X + 7, y + 3, P2PTheme.TEXT_PRIMARY, false);
+            gg.drawString(this.font, Component.literal("v"), leftPos + LEFT_X + w - 13, y + 3, P2PTheme.TEXT_SECOND, false);
+            netNameHitX = leftPos + LEFT_X; netNameHitW = w; netNameHitValid = true;
+        }
+        P2PTheme.drawCenteredBold(gg, this.font, Lang.t(Lang.UI_TITLE), leftPos, topPos + 6, W, P2PTheme.TEXT_PRIMARY);
+    }
+
     /**
      * Re-flows the 红石/分配/分组/清理空气/区块加载 row to its messages' real widths; the fixed
      * per-button width makes longer (e.g. Chinese) labels spill past the panel edge. Runs after
-     * drawRight refreshed the messages and before renderWidgets draws the buttons.
+     * drawRight refreshed the messages and before renderWidgets draws the buttons. The medium chip
+     * keeps its own width at the right end of the band.
      */
     private void fitConfigRow() {
         if (redstoneBtn == null || !redstoneBtn.visible) return;
         P2PFlatButton[] row = {redstoneBtn, distBtn, groupBtn, cleanBtn, chunkLoadBtn};
-        int rx = leftPos + 148;
-        int rw = W - 148 - 4;
+        int rx = leftPos + RIGHT_X;
+        int chipW = typeBtn != null && typeBtn.visible ? typeBtn.getWidth() + 4 : 0;
         int gap = 4;
         int padding = 8;
         int[] textWidths = new int[row.length];
@@ -303,67 +375,72 @@ public class ChannelScreen extends Screen {
             textWidths[i] = this.font.width(row[i].getMessage());
             textTotal += textWidths[i];
         }
-        int budget = rw - gap * (row.length - 1) - row.length * padding;
+        int budget = RIGHT_W - chipW - gap * (row.length - 1) - row.length * padding;
         float scale = textTotal <= budget ? 1f : (float) budget / textTotal;
         int x = rx;
         for (int i = 0; i < row.length; i++) {
             int text = Math.max(12, Math.round(textWidths[i] * scale));
             if (text < textWidths[i]) row[i].setMessage(Component.literal(trim(row[i].getMessage().getString(), text)));
             row[i].setX(x);
-            row[i].setWidth(text + padding);
-            x += text + padding + gap;
+            row[i].setWidth(text + padding + row[i].extraWidth());
+            x += row[i].getWidth() + gap;
         }
     }
 
     // ---------- left: search + group tree + channel list ----------
     private void drawLeft(GuiGraphics gg) {
-        int x = leftPos, y = topPos, lx = x + 4, lw = 140;
-        int listTop = y + 28, listBottom = y + H - 26, rowH = 16;
+        int lx = leftPos + LEFT_X;
+        int listTop = topPos + FRAME_TOP, listBottom = topPos + FRAME_BOTTOM;
         int listH = listBottom - listTop;
 
-        inset(gg, lx + 1, y + 6, lw - 2, 18);            // search frame
+        P2PTheme.searchField(gg, lx, topPos + BAND_TOP, LEFT_W, BAND_H);
 
-        gg.fill(lx, listTop, lx + lw, listBottom, LEFT_BG);
-        inset(gg, lx, listTop, lw, listH);
+        P2PTheme.card(gg, lx, listTop, LEFT_W, listH);
 
         List<LeftRow> rows = buildLeftRows();
-        leftContentH = rows.size() * rowH;
+        leftContentH = rows.size() * ROW_H;
         leftScroll = clamp(leftScroll, 0, Math.max(0, leftContentH - listH));
         leftRects.clear();
 
+        gg.enableScissor(lx + 1, listTop + 1, lx + LEFT_W - 1, listBottom);
         int baseY = listTop - leftScroll;
         for (int i = 0; i < rows.size(); i++) {
-            int ry = baseY + i * rowH;
-            if (ry + rowH <= listTop) continue;
+            int ry = baseY + i * ROW_H;
+            if (ry + ROW_H <= listTop) continue;
             if (ry > listBottom) break;
             LeftRow r = rows.get(i);
             if (r.kind == 0) { // group header — selectable tree node
                 boolean gSel = r.id == selectedGroup;
-                gg.fill(lx + 1, ry, lx + lw - 1, ry + rowH, gSel ? SEL : GRP_BG);
-                gg.fill(lx + 2, ry + 2, lx + 6, ry + rowH - 2, r.color == 0 ? 0xFF6b6b6b : r.color);
-                String caret = openGroups.contains(r.id) ? "▾" : "▸";
-                gg.drawString(this.font, Component.literal(caret + " " + trim(r.label, lw - 32)), lx + 10, ry + 4, gSel ? 0xFFFFFFFF : INK, false);
+                if (gSel) P2PTheme.drawRoundRect(gg, lx + 1, ry, LEFT_W - 2, ROW_H, P2PTheme.R_CARD, P2PTheme.CARD_SEL);
+                P2PTheme.drawRoundRect(gg, lx + P2PTheme.PAD, ry + 3, 4, ROW_H - 6, 2, r.color == 0 ? P2PTheme.TEXT_TERT : r.color);
+                String caret = openGroups.contains(r.id) ? "v" : ">";
+                gg.drawString(this.font, Component.literal(caret + " " + trim(r.label, LEFT_W - 46)),
+                        lx + P2PTheme.PAD + 10, ry + 5, P2PTheme.TEXT_PRIMARY, false);
                 String cnt = String.valueOf(groupCount(r.id));
-                gg.drawString(this.font, Component.literal(cnt), lx + lw - 8 - this.font.width(cnt), ry + 4, INK_DIM, false);
-                leftRects.add(new Hit(lx + 1, ry, lw - 2, rowH, 0, r.id));
-                gg.fill(lx + 1, ry + rowH - 1, lx + lw - 1, ry + rowH, P2PGuiTextures.SEP);   // separator under header
+                gg.drawString(this.font, Component.literal(cnt), lx + LEFT_W - P2PTheme.PAD - this.font.width(cnt),
+                        ry + 5, P2PTheme.TEXT_SECOND, false);
+                leftRects.add(new Hit(lx + 1, ry, LEFT_W - 2, ROW_H, 0, r.id));
+                gg.fill(lx + P2PTheme.PAD, ry + ROW_H - 1, lx + LEFT_W - P2PTheme.PAD, ry + ROW_H, P2PTheme.SEPARATOR);
             } else { // channel row — child rows are indented with a left tree guide line
                 boolean sel = r.id == selectedChannel;
-                if (sel) gg.fill(lx + 1, ry, lx + lw - 1, ry + rowH, SEL);
-                if (r.child) gg.fill(lx + 2, ry + 2, lx + 4, ry + rowH - 2, 0xFF5A6068);  // tree guide line
-                int ind = r.child ? 26 : 8;
-                int rowInk = sel ? 0xFFFFFFFF : INK_DIM;
-                // show the channel name only (no "#id" prefix); trim so the type tag fits inside the list border
-                int nameMax = lw - 42 - (r.child ? 18 : 0);
-                gg.drawString(this.font, Component.literal(trim(r.label, nameMax)), lx + ind, ry + 4, rowInk, false);
-                // medium tag moved left (28px wide) so its right edge stays inside the list bevel
-                typeTag(gg, lx + lw - 32, ry + 2, r.type);
-                leftRects.add(new Hit(lx + 1, ry, lw - 2, rowH, 1, r.id));
-                gg.fill(lx + 1, ry + rowH - 1, lx + lw - 1, ry + rowH, P2PGuiTextures.SEP);   // row separator
+                if (sel) P2PTheme.drawRoundRect(gg, lx + 1, ry, LEFT_W - 2, ROW_H, P2PTheme.R_CARD, P2PTheme.CARD_SEL);
+                if (r.child) gg.fill(lx + P2PTheme.PAD + 1, ry + 3, lx + P2PTheme.PAD + 3, ry + ROW_H - 3, P2PTheme.SEPARATOR);
+                int ind = r.child ? 24 : P2PTheme.PAD;
+                int rowInk = sel ? P2PTheme.TEXT_PRIMARY : P2PTheme.TEXT_SECOND;
+                // show the channel name only (no "#id" prefix); trim so the type tag fits inside the card
+                int nameMax = LEFT_W - 40 - (r.child ? 16 : 0);
+                gg.drawString(this.font, Component.literal(trim(r.label, nameMax)), lx + ind, ry + 5, rowInk, false);
+                typeTag(gg, lx + LEFT_W - 8 - 56, ry + 4, r.type);
+                leftRects.add(new Hit(lx + 1, ry, LEFT_W - 2, ROW_H, 1, r.id));
+                gg.fill(lx + P2PTheme.PAD, ry + ROW_H - 1, lx + LEFT_W - P2PTheme.PAD, ry + ROW_H, P2PTheme.SEPARATOR);
             }
         }
-            if (rows.isEmpty())
-            gg.drawString(this.font, Lang.t(Lang.UI_NO_MATCH), lx + 8, listTop + 10, INK_DIM, false);
+        if (rows.isEmpty()) {
+            gg.disableScissor();
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_MATCH), lx + P2PTheme.PAD, listTop + 10, P2PTheme.TEXT_SECOND, false);
+        } else {
+            gg.disableScissor();
+        }
     }
 
     private List<LeftRow> buildLeftRows() {
@@ -406,7 +483,8 @@ public class ChannelScreen extends Screen {
 
     // ---------- right: selected channel detail ----------
     private void drawRight(GuiGraphics gg) {
-        int x = leftPos, y = topPos, rx = x + 148, rw = W - 148 - 4;
+        int rx = leftPos + RIGHT_X;
+        int cx = rxF();
         nameHitValid = false;
         Channel c = findChannel(selectedChannel);
         boolean has = c != null;
@@ -416,22 +494,12 @@ public class ChannelScreen extends Screen {
         typeBtn.visible = has;
         if (deleteGrpBtn != null) deleteGrpBtn.active = has && (selectedGroup >= 0 || (c != null && c.groupId >= 0));
         if (!has) {
-            gg.fill(rx, y + 8, rx + rw, y + H - 26, RIGHT_BG);
-            inset(gg, rx, y + 8, rw, (y + H - 26) - (y + 8));
-            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL), rx + 10, y + 24, INK, false);
-            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT1), rx + 10, y + 44, INK_DIM, false);
-            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT2), rx + 10, y + 62, INK_DIM, false);
+            P2PTheme.card(gg, rx, topPos + FRAME_TOP, RIGHT_W, FRAME_BOTTOM - FRAME_TOP);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL), cx, topPos + FRAME_TOP + 24, P2PTheme.TEXT_PRIMARY, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT1), cx, topPos + FRAME_TOP + 44, P2PTheme.TEXT_SECOND, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT2), cx, topPos + FRAME_TOP + 62, P2PTheme.TEXT_SECOND, false);
             return;
         }
-
-        // header: #id  name  [type tag] — white text on a dark strip to match the button style
-        int headerTop = y + 8, headerH = 18;
-        gg.fill(rx, headerTop, rx + rw, headerTop + headerH, TAB);
-        inset(gg, rx, headerTop, rw, headerH);
-        gg.drawString(this.font, Component.literal("#" + c.id), rx + 4, y + 11, TITLE, false);
-        String nm = trim(c.name == null ? "#" + c.id : c.name, rw - 108);
-        gg.drawString(this.font, Component.literal(nm), rx + 34, y + 10, TITLE, false);
-        nameHitX = rx + 34; nameHitY = y + 8; nameHitW = this.font.width(nm) + 4; nameHitH = 15; nameHitValid = true;
 
         // config reflects state
         redstoneBtn.setMessage(Lang.t(Lang.UI_REDSTONE, redstoneLabel(c.redstoneMode)));
@@ -439,7 +507,10 @@ public class ChannelScreen extends Screen {
         groupBtn.setMessage(Lang.t(Lang.UI_GROUP, groupLabel(c.groupId)));
         // cleanBtn's message is static, so fitConfigRow's ellipsis would be permanent without this reset
         cleanBtn.setMessage(Lang.t(Lang.UI_CLEAN_AIR));
-        typeBtn.setMessage(Lang.t(Lang.UI_MEDIUM, typeLabel(c.type)));
+        typeBtn.setMessage(typeLabel(c.type));
+        typeBtn.setChipColor(typeColor(c.type));
+        typeBtn.setWidth(Math.min(this.font.width(typeLabel(c.type)) + 12, 56));
+        typeBtn.setX(rx + RIGHT_W - typeBtn.getWidth());
         // chunk loading is a network-level switch shown next to the channel-level buttons
         Network net = null;
         for (Network nn : nets) if (nn.id == c.networkId) { net = nn; break; }
@@ -451,7 +522,7 @@ public class ChannelScreen extends Screen {
         if (!speedEdit.isFocused() && !speedEdit.getValue().equals(String.valueOf(c.speed))) speedEdit.setValue(String.valueOf(c.speed));
 
         // per-medium extension: a medium may take over the whole right-hand detail panel
-        // (hides the generic rate/throttle controls, skips the default endpoint table)
+        // (hides the generic rate/throttle controls and the header card, skips the default endpoint table)
         ChannelScreenExtension ext = extensionFor(c);
         if (ext != null && ext.replacesDefaultPanel(c)) {
             rateDown.visible = rateUp.visible = speedDown.visible = speedUp.visible = maxRateBtn.visible = false;
@@ -461,147 +532,164 @@ public class ChannelScreen extends Screen {
             return;
         }
 
-        String unitShort = c.type == Mediums.ITEM ? Lang.t(Lang.UI_UNIT_ITEM).getString() : c.type == Mediums.FLUID ? Lang.t(Lang.UI_UNIT_MB).getString() : c.type == Mediums.ENERGY ? Lang.t(Lang.UI_UNIT_FE).getString() : c.type.displayName().getString();
-        gg.drawString(this.font, Lang.t(Lang.UI_RATE), rx, y + 50, INK, false);
-        gg.drawString(this.font, Component.literal(unitShort + "≈" + formatPerSec(c.rate, c.speed) + "/s"), rx + 150, y + 58, INK_DIM, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_THROTTLE), rx, y + 68, INK, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_EVERY_TICKS, c.speed), rx + 114, y + 68, INK_DIM, false);
+        drawHeaderCard(gg, rx, cx, c);
+        drawRateCard(gg, cx, c);
 
-        // endpoint table (fixed-column layout so direction and IN/OUT line up regardless of coordinate width).
-        // Group/clean buttons moved up to the 红石/分配 row, so the table starts sooner and shows more coordinates.
-        int mTop = y + 88, mBottom = y + H - 26;
-        int rowH = 16, listH = mBottom - mTop - headerH;
-        gg.fill(rx, mTop, rx + rw, mBottom, RIGHT_BG);
-        inset(gg, rx, mTop, rw, mBottom - mTop);
-        // header strip
-        gg.fill(rx + 1, mTop + 1, rx + rw - 1, mTop + headerH - 1, SEL);
-        gg.drawString(this.font, Lang.t(Lang.UI_DIM), rx + 4, mTop + 5, 0xFFE0E0E0, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_POS), rx + 29, mTop + 5, 0xFFE0E0E0, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_FACE), rx + 93, mTop + 5, 0xFFE0E0E0, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_FLOW), rx + 108, mTop + 5, 0xFFE0E0E0, false);
+        // endpoint table (fixed-column layout so direction and IN/OUT line up regardless of coordinate width)
+        int tableTop = topPos + TABLE_TOP;
+        int rowsTop = tableTop + TABLE_HEAD;
+        int tableBottom = topPos + FRAME_BOTTOM;
+        P2PTheme.card(gg, rx, tableTop, RIGHT_W, tableBottom - tableTop);
+        gg.drawString(this.font, Lang.t(Lang.UI_DIM), cx + COL_DIM, tableTop + 5, P2PTheme.TEXT_SECOND, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_POS), cx + COL_POS, tableTop + 5, P2PTheme.TEXT_SECOND, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_FACE), cx + COL_FACE, tableTop + 5, P2PTheme.TEXT_SECOND, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_FLOW), cx + COL_ROLE, tableTop + 5, P2PTheme.TEXT_SECOND, false);
         Component cnt = Lang.t(Lang.UI_MEMBER_COUNT, c.members.size());
-        gg.drawString(this.font, cnt, rx + rw - 6 - this.font.width(cnt), mTop + 5, 0xFFE0E0E0, false);
+        gg.drawString(this.font, cnt, rx + RIGHT_W - P2PTheme.PAD - this.font.width(cnt), tableTop + 5, P2PTheme.TEXT_SECOND, false);
+        gg.fill(rx + P2PTheme.PAD, rowsTop, rx + RIGHT_W - P2PTheme.PAD, rowsTop + 1, P2PTheme.SEPARATOR);
 
         memberBtns.clear();
         posHits.clear();
         dimHits.clear();
         blockHits.clear();
+        faceHits.clear();
         if (c.members.isEmpty()) {
-            gg.drawString(this.font, Lang.t(Lang.UI_NO_ENDPOINT), rx + 10, mTop + 26, 0xFFE0E0E0, false);
-            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT2), rx + 10, mTop + 42, P2PGuiTextures.INK_DIM, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_ENDPOINT), cx, rowsTop + 12, P2PTheme.TEXT_PRIMARY, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT2), cx, rowsTop + 28, P2PTheme.TEXT_SECOND, false);
             if (ext != null) ext.drawDetails(detailContext(), gg, c);
             return;
         }
-        memberContentH = c.members.size() * rowH;
-        memberScroll = clamp(memberScroll, 0, Math.max(0, memberContentH - listH));
-        int baseY = mTop + headerH - memberScroll;
+        int viewport = tableBottom - rowsTop;
+        memberContentH = c.members.size() * ROW_H;
+        memberScroll = clamp(memberScroll, 0, Math.max(0, memberContentH - viewport));
+        int baseY = rowsTop - memberScroll;
 
-        // fixed column positions (relative to rx). Coordinates are LEFT-aligned close to the dimension label so
-        // every row starts at the same x; longer coordinates are ellipsised instead of pushing the other columns.
-        final int colIconX = 1;                         // 16px 方块图标（坐标节点旁）
-        final int colDimX = 19, colDimW = 4;            // colour pill
-        final int colDimTextX = 25;                     // 2-char dimension label (tooltip = full id)
-        final int colPosX = 41, colPosW = 48;
-        final int colFaceX = 92, colFaceW = 14;         // direction column, centered
-        final int colRoleX = 108;                       // IN/OUT square + text
-        final int colToggleX = 108, colToggleW = 16;    // IN/OUT swap button
-        final int colPriorityX = 125, colPriorityW = 16; // priority value (click to type any number)
-        final int colFilterX = 142, colFilterW = 38;
-        final int colDelX = 208, colDelW = 20;          // remove endpoint (red ×)
-
+        gg.enableScissor(rx + 1, rowsTop + 1, rx + RIGHT_W - 1, tableBottom);
         for (int i = 0; i < c.members.size(); i++) {
-            int ry = baseY + i * rowH;
-            if (ry + rowH <= mTop + headerH) continue;
-            if (ry > mBottom) break;
-            Member m = c.members.get(i);
-            boolean sel = i == selectedMember;
-            if (sel) gg.fill(rx + 1, ry, rx + rw - 1, ry + rowH, SEL);
-            // subtle row separator
-            gg.fill(rx + 2, ry + rowH - 1, rx + rw - 2, ry + rowH, P2PGuiTextures.SEP);
-
-            // 方块图标：坐标节点旁显示该位置方块，方便辨认。
-            // 同维度且区块已加载时优先实时取（pick-stack + 方块实体 NBT 能还原模组方块的变体/染色，
-            // 如精妙存储「橡木钻石箱子」的木材类型——JEI 对物品名的显示也以 ItemStack 为准）；
-            // 否则退回绑定时记录的 Member.blockId——这样跨维度 / 区块未加载的端点也有图标。
-            ItemStack icon = ItemStack.EMPTY;
-            if (this.minecraft.level != null && this.minecraft.level.dimension().location().equals(m.dim)) {
-                BlockState st = this.minecraft.level.getBlockState(m.pos);
-                Block blk = st.getBlock();
-                if (blk != Blocks.AIR && blk.asItem() != Items.AIR) {
-                    ItemStack pick = blk.getCloneItemStack(st,
-                            new BlockHitResult(Vec3.atCenterOf(m.pos), m.face, m.pos, false),
-                            this.minecraft.level, m.pos, this.minecraft.player);
-                    if (pick.isEmpty()) pick = new ItemStack(blk.asItem());
-                    // 把方块实体的 NBT 挂到 pick-stack 上（vanilla BlockItem 同款 "BlockEntityTag"），
-                    // 模组物品（精妙存储等）读它还原木材/等级变体，图标与名称才会和世界里的实际方块一致。
-                    BlockEntity be = this.minecraft.level.getBlockEntity(m.pos);
-                    if (be != null) {
-                        CompoundTag beTag = be.saveWithFullMetadata(this.minecraft.level.registryAccess());
-                        beTag.remove("id");
-                        BlockItem.setBlockEntityData(pick, be.getType(), beTag);
-                    }
-                    icon = pick;
-                }
-            }
-            if (icon.isEmpty() && m.blockId != null) {
-                // BuiltInRegistries.BLOCK 是 DefaultedRegistry：查不到返回 AIR 而不是 null
-                Block blk = BuiltInRegistries.BLOCK.get(m.blockId);
-                if (blk != Blocks.AIR && blk.asItem() != Items.AIR) {
-                    icon = new ItemStack(blk.asItem());
-                }
-            }
-            if (!icon.isEmpty()) {
-                gg.renderItem(icon, rx + colIconX, ry + 0);
-                blockHits.add(new BlockHit(i, rx + colIconX, ry, 16, 16, icon));
-            }
-
-            // dimension: colour pill + short label (hover shows the full dimension id)
-            String dimId = m.dim.toString();
-            gg.fill(rx + colDimX, ry + 3, rx + colDimX + colDimW, ry + 12, dimColor(dimId) | 0xFF000000);
-            String dimS = dimShort(dimId);
-            gg.drawString(this.font, Component.literal(dimS), rx + colDimTextX, ry + 4, 0xFFE0E0E0, false);
-            dimHits.add(new DimHit(dimId, rx + colDimX, ry + 2, colDimTextX - colDimX + this.font.width(dimS) + 2, 14));
-
-            // coordinate (left-aligned at a fixed x; ellipsised if a huge coordinate would overflow)
-            String pos = trim(m.pos.getX() + "," + m.pos.getY() + "," + m.pos.getZ(), colPosW);
-            int posX = rx + colPosX;
-            gg.drawString(this.font, Component.literal(pos), posX, ry + 4, 0xFFE0E0E0, false);
-            posHits.add(new PosHit(i, posX - 2, ry + 2, this.font.width(pos) + 4, 14));
-
-            // face direction (centered in its column)
-            Component face = faceShort(m.face);
-            int faceW = this.font.width(face);
-            gg.drawString(this.font, face, rx + colFaceX + (colFaceW - faceW) / 2, ry + 4, 0xFFE0E0E0, false);
-            faceHits.add(new FaceHit(i, rx + colFaceX - 2, ry + 1, colFaceW + 4, 14));
-
-            // action buttons (fixed positions)
-            int tbX = rx + colToggleX, pX = rx + colPriorityX, fbX = rx + colFilterX, dbX = rx + colDelX;
-            // role-tinted IN/OUT button (click to swap role)
-            int roleColor = m.role == Role.INPUT ? IN_C : OUT_C;
-            gg.fill(tbX, ry + 1, tbX + colToggleW, ry + 15, roleColor);
-            gg.fill(tbX + colToggleW - 1, ry + 1, tbX + colToggleW, ry + 15, 0x44000000);
-            String roleS = m.role == Role.INPUT ? "IN" : "OUT";
-            gg.drawString(this.font, Component.literal(roleS), tbX + 3, ry + 4, 0xFFFFFFFF, false);
-            addInline(gg, pX, ry + 1, colPriorityW, 14, "P" + m.priority, false);
-            addInline(gg, fbX, ry + 1, colFilterW, 14, Lang.t(Lang.UI_FILTER).getString(), hasFilter(m));
-            addDanger(gg, dbX, ry + 1, colDelW, 14, "×");
-            memberBtns.add(new MemberBtn(i, 0, fbX, ry + 1, colFilterW, 14));
-            memberBtns.add(new MemberBtn(i, 1, tbX, ry + 1, colToggleW, 14));
-            memberBtns.add(new MemberBtn(i, 2, dbX, ry + 1, colDelW, 14));
-            memberBtns.add(new MemberBtn(i, 3, pX, ry + 1, colPriorityW, 14));
+            int ry = baseY + i * ROW_H;
+            if (ry + ROW_H <= rowsTop) continue;
+            if (ry > tableBottom) break;
+            drawMemberRow(gg, c.members.get(i), i, ry, cx);
         }
+        gg.disableScissor();
         // overlay details (default panel still visible) — non-replacing extensions draw here
         if (ext != null) ext.drawDetails(detailContext(), gg, c);
     }
 
-    // a faux button drawn with the bevel language (real input handled in mouseClicked)
-    private void addInline(GuiGraphics gg, int bx, int by, int bw, int bh, String label, boolean marked) {
-        gg.fill(bx, by, bx + bw, by + bh, P2PGuiTextures.FAUX_BTN);
-        gg.fill(bx, by, bx + bw, by + 1, HI);
-        gg.fill(bx, by, bx + 1, by + bh, HI);
-        gg.fill(bx, by + bh - 1, bx + bw, by + bh, SH);
-        gg.fill(bx + bw - 1, by, bx + bw, by + bh, SH);
-        gg.drawString(this.font, Component.literal(label), bx + (bw - this.font.width(label)) / 2, by + 4, marked ? P2PGuiTextures.MARK_GOLD : INK, false);
+    /** Header card: {@code #id} in secondary ink, then the (click-to-rename) channel title. */
+    private void drawHeaderCard(GuiGraphics gg, int rx, int cx, Channel c) {
+        P2PTheme.card(gg, rx, topPos + HEAD_TOP, RIGHT_W, HEAD_H);
+        String id = "#" + c.id;
+        gg.drawString(this.font, Component.literal(id), cx, topPos + HEAD_TOP + 5, P2PTheme.TEXT_SECOND, false);
+        int nameX = cx + this.font.width(id) + 6;
+        String nm = trim(c.name == null ? "#" + c.id : c.name, rx + RIGHT_W - P2PTheme.PAD - nameX);
+        P2PTheme.drawStringBold(gg, this.font, Component.literal(nm), nameX, topPos + HEAD_TOP + 5, P2PTheme.TEXT_PRIMARY);
+        nameHitX = nameX; nameHitY = topPos + HEAD_TOP; nameHitW = this.font.width(nm) + 4; nameHitH = HEAD_H; nameHitValid = true;
+    }
+
+    /** Rate + throttle card: two 18px rows, each label / stepper / derived footnote. */
+    private void drawRateCard(GuiGraphics gg, int cx, Channel c) {
+        P2PTheme.card(gg, leftPos + RIGHT_X, topPos + RATE_TOP, RIGHT_W, RATE_ROW * 2);
+        gg.fill(leftPos + RIGHT_X + P2PTheme.PAD, topPos + RATE_TOP + RATE_ROW,
+                leftPos + RIGHT_X + RIGHT_W - P2PTheme.PAD, topPos + RATE_TOP + RATE_ROW + 1, P2PTheme.SEPARATOR);
+
+        P2PTheme.stepperField(gg, cx + 46, topPos + RATE_TOP + 2, 34, 14);
+        gg.drawString(this.font, Lang.t(Lang.UI_RATE), cx, topPos + RATE_TOP + 5, P2PTheme.TEXT_SECOND, false);
+        // 单位与介质名分开画：p2p.unit.<介质id> 没有配键时留空，长介质名因此不再被截断。
+        int footX = cx + 132;
+        String unit = Lang.unitOf(c.type.id);
+        if (!unit.isEmpty()) {
+            gg.drawString(this.font, Component.literal(unit), footX, topPos + RATE_TOP + 5, P2PTheme.TEXT_SECOND, false);
+            footX += this.font.width(unit) + 4;
+        }
+        gg.drawString(this.font, Component.literal("~" + formatPerSec(c.rate, c.speed) + "/s"),
+                footX, topPos + RATE_TOP + 5, P2PTheme.TEXT_TERT, false);
+
+        P2PTheme.stepperField(gg, cx + 46, topPos + RATE_TOP + RATE_ROW + 2, 34, 14);
+        gg.drawString(this.font, Lang.t(Lang.UI_THROTTLE), cx, topPos + RATE_TOP + RATE_ROW + 5, P2PTheme.TEXT_SECOND, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_EVERY_TICKS, c.speed), cx + 100,
+                topPos + RATE_TOP + RATE_ROW + 5, P2PTheme.TEXT_TERT, false);
+    }
+
+    private void drawMemberRow(GuiGraphics gg, Member m, int index, int ry, int cx) {
+        boolean sel = index == selectedMember;
+        if (sel) P2PTheme.drawRoundRect(gg, cx - P2PTheme.PAD + 1, ry, RIGHT_W - 2, ROW_H, P2PTheme.R_CARD, P2PTheme.CARD_SEL);
+        gg.fill(cx, ry + ROW_H - 1, cx + RIGHT_W - P2PTheme.PAD * 2, ry + ROW_H, P2PTheme.SEPARATOR);
+
+        // 方块图标：坐标节点旁显示该位置方块，方便辨认。
+        // 同维度且区块已加载时优先实时取（pick-stack + 方块实体 NBT 能还原模组方块的变体/染色，
+        // 如精妙存储「橡木钻石箱子」的木材类型——JEI 对物品名的显示也以 ItemStack 为准）；
+        // 否则退回绑定时记录的 Member.blockId——这样跨维度 / 区块未加载的端点也有图标。
+        ItemStack icon = endpointIcon(m);
+        if (!icon.isEmpty()) {
+            gg.renderItem(icon, cx + COL_ICON, ry + 1);
+            blockHits.add(new BlockHit(index, cx + COL_ICON, ry, 16, ROW_H, icon));
+        }
+
+        // dimension: colour pill + short label (hover shows the full dimension id)
+        String dimId = m.dim.toString();
+        P2PTheme.dimPill(gg, cx + COL_DIM, ry + 3, ROW_H - 6, dimColor(dimId));
+        String dimS = dimShort(dimId);
+        gg.drawString(this.font, Component.literal(dimS), cx + COL_DIM_TEXT, ry + 5, P2PTheme.TEXT_PRIMARY, false);
+        dimHits.add(new DimHit(dimId, cx + COL_DIM, ry + 2, COL_DIM_TEXT - COL_DIM + this.font.width(dimS) + 2, ROW_H - 4));
+
+        // coordinate (left-aligned at a fixed x; ellipsised if a huge coordinate would overflow)
+        String pos = trim(m.pos.getX() + "," + m.pos.getY() + "," + m.pos.getZ(), COL_POS_W);
+        int posX = cx + COL_POS;
+        gg.drawString(this.font, Component.literal(pos), posX, ry + 5, P2PTheme.TEXT_PRIMARY, false);
+        posHits.add(new PosHit(index, posX - 2, ry + 2, this.font.width(pos) + 4, ROW_H - 4));
+
+        // face direction (centered in its column)
+        Component face = faceShort(m.face);
+        int faceW = this.font.width(face);
+        gg.drawString(this.font, face, cx + COL_FACE + (COL_FACE_W - faceW) / 2, ry + 5, P2PTheme.TEXT_PRIMARY, false);
+        faceHits.add(new FaceHit(index, cx + COL_FACE - 2, ry + 1, COL_FACE_W + 4, ROW_H - 2));
+
+        // IN/OUT badge (click to swap role), priority, filter, circular delete
+        int bx = cx + COL_ROLE, pX = cx + COL_PRIORITY, fbX = cx + COL_FILTER, dbX = cx + COL_DELETE;
+        P2PTheme.roleBadge(gg, bx, ry + 3, m.role == Role.INPUT);
+        P2PTheme.drawCentered(gg, this.font, Component.literal(m.role == Role.INPUT ? "IN" : "OUT"),
+                bx, ry + 5, P2PTheme.BADGE_W, 0xFFFFFFFF);
+        addFaux(gg, pX, ry + 3, COL_PRIORITY_W, P2PTheme.FIELD_BG, "P" + m.priority, P2PTheme.TEXT_PRIMARY);
+        addFaux(gg, fbX, ry + 3, COL_FILTER_W, hasFilter(m) ? P2PTheme.CARD_SEL : P2PTheme.FIELD_BG,
+                Lang.t(Lang.UI_FILTER).getString(), hasFilter(m) ? P2PTheme.TINT : P2PTheme.TEXT_SECOND);
+        P2PTheme.deleteCross(gg, dbX, ry + 2, false);
+        memberBtns.add(new MemberBtn(index, 0, fbX, ry + 3, COL_FILTER_W, 12));
+        memberBtns.add(new MemberBtn(index, 1, bx, ry + 3, P2PTheme.BADGE_W, 12));
+        memberBtns.add(new MemberBtn(index, 2, dbX, ry + 2, P2PTheme.CIRCLE, P2PTheme.CIRCLE));
+        memberBtns.add(new MemberBtn(index, 3, pX, ry + 3, COL_PRIORITY_W, 12));
+    }
+
+    /** Same resolution rule the base screen always used: live pick-stack first, bound blockId fallback. */
+    private ItemStack endpointIcon(Member m) {
+        ItemStack icon = ItemStack.EMPTY;
+        if (this.minecraft.level != null && this.minecraft.level.dimension().location().equals(m.dim)) {
+            BlockState st = this.minecraft.level.getBlockState(m.pos);
+            Block blk = st.getBlock();
+            if (blk != Blocks.AIR && blk.asItem() != Items.AIR) {
+                ItemStack pick = blk.getCloneItemStack(st,
+                        new BlockHitResult(Vec3.atCenterOf(m.pos), m.face, m.pos, false),
+                        this.minecraft.level, m.pos, this.minecraft.player);
+                if (pick.isEmpty()) pick = new ItemStack(blk.asItem());
+                // 把方块实体的 NBT 挂到 pick-stack 上（vanilla BlockItem 同款 "BlockEntityTag"），
+                // 模组物品（精妙存储等）读它还原木材/等级变体，图标与名称才会和世界里的实际方块一致。
+                BlockEntity be = this.minecraft.level.getBlockEntity(m.pos);
+                if (be != null) {
+                    CompoundTag beTag = be.saveWithFullMetadata(this.minecraft.level.registryAccess());
+                    beTag.remove("id");
+                    BlockItem.setBlockEntityData(pick, be.getType(), beTag);
+                }
+                icon = pick;
+            }
+        }
+        if (icon.isEmpty() && m.blockId != null) {
+            // BuiltInRegistries.BLOCK 是 DefaultedRegistry：查不到返回 AIR 而不是 null
+            Block blk = BuiltInRegistries.BLOCK.get(m.blockId);
+            if (blk != Blocks.AIR && blk.asItem() != Items.AIR) {
+                icon = new ItemStack(blk.asItem());
+            }
+        }
+        return icon;
     }
 
     // ============================================================ input
@@ -611,7 +699,7 @@ public class ChannelScreen extends Screen {
         if (ext != null && ext.mouseClicked(detailContext(), mx, my, button)) return true;
         if (super.mouseClicked(mx, my, button)) return true;
         int ix = (int) mx, iy = (int) my;
-        if (netNameHitValid && iy >= topPos - 16 && iy <= topPos - 2 && ix >= netNameHitX && ix <= netNameHitX + netNameHitW) {
+        if (netNameHitValid && iy >= topPos && iy <= topPos + NAV_H && ix >= netNameHitX && ix <= netNameHitX + netNameHitW) {
             minecraft.setScreen(new NetworkScreen());
             return true;
         }
@@ -680,12 +768,13 @@ public class ChannelScreen extends Screen {
     public boolean mouseScrolled(double mx, double my, double scrollX, double scrollY) {
         ChannelScreenExtension ext = extensionFor(findChannel(selectedChannel));
         if (ext != null && ext.mouseScrolled(detailContext(), mx, my, scrollX, scrollY)) return true;
-        int lx = leftPos + 4, lw = 140, listBottom = topPos + H - 26;
-        int rx = leftPos + 148, rw = W - 148 - 4;
-        if (mx >= lx && mx <= lx + lw && my >= topPos + 28 && my <= listBottom)
-            leftScroll = clamp(leftScroll - (int) scrollY * 16, 0, Math.max(0, leftContentH - (listBottom - (topPos + 28))));
-        else if (mx >= rx && mx <= rx + rw && my >= topPos + 88 && my <= listBottom)
-            memberScroll = clamp(memberScroll - (int) scrollY * 16, 0, Math.max(0, memberContentH - (listBottom - (topPos + 88 + 18))));
+        int lx = leftPos + LEFT_X, listTop = topPos + FRAME_TOP, listBottom = topPos + FRAME_BOTTOM;
+        int rx = leftPos + RIGHT_X;
+        int rowsTop = topPos + TABLE_TOP + TABLE_HEAD;
+        if (mx >= lx && mx <= lx + LEFT_W && my >= listTop && my <= listBottom)
+            leftScroll = clamp(leftScroll - (int) scrollY * ROW_H, 0, Math.max(0, leftContentH - (listBottom - listTop)));
+        else if (mx >= rx && mx <= rx + RIGHT_W && my >= rowsTop && my <= listBottom)
+            memberScroll = clamp(memberScroll - (int) scrollY * ROW_H, 0, Math.max(0, memberContentH - (listBottom - rowsTop)));
         return true;
     }
 
@@ -785,16 +874,6 @@ public class ChannelScreen extends Screen {
         selectedMember = -1;
     }
 
-    /** Faux bevel button with red text, used for destructive row actions. */
-    private void addDanger(GuiGraphics gg, int bx, int by, int bw, int bh, String label) {
-        gg.fill(bx, by, bx + bw, by + bh, P2PGuiTextures.FAUX_BTN);
-        gg.fill(bx, by, bx + bw, by + 1, HI);
-        gg.fill(bx, by, bx + 1, by + bh, HI);
-        gg.fill(bx, by + bh - 1, bx + bw, by + bh, SH);
-        gg.fill(bx + bw - 1, by, bx + bw, by + bh, SH);
-        gg.drawString(this.font, Component.literal(label), bx + (bw - this.font.width(label)) / 2, by + 4, P2PGuiTextures.DANGER, false);
-    }
-
     // ============================================================ helpers
     /** The per-medium detail-panel extension registered for this channel (null = vanilla layout). */
     @Nullable
@@ -805,8 +884,33 @@ public class ChannelScreen extends Screen {
 
     /** Fresh facade over the current panel geometry — rebuilt per callback so window resizes are honoured. */
     private DetailContext detailContext() {
-        return new DetailContext(leftPos, topPos, W, H, leftPos + 148, W - 148 - 4,
+        return new DetailContext(leftPos, topPos, W, H, leftPos + RIGHT_X, RIGHT_W,
                 this.font, this.minecraft, pkt -> ModMessages.sendToServer(pkt));
+    }
+
+    /** In-row faux control (priority / filter): rounded FIELD plate + centred label, hit tested in mouseClicked. */
+    private void addFaux(GuiGraphics gg, int x, int y, int w, int bg, String label, int ink) {
+        P2PTheme.drawPill(gg, x, y, w, 12, bg);
+        P2PTheme.drawCentered(gg, this.font, Component.literal(label), x, y + 2, w, ink);
+    }
+
+    private static Component distLabel(Channel.Distribution d) {
+        return switch (d) {
+            case PRIORITY -> Lang.t(Lang.UI_DIST_PRIORITY);
+            case NEAREST -> Lang.t(Lang.UI_DIST_NEAREST);
+            case FARTHEST -> Lang.t(Lang.UI_DIST_FARTHEST);
+            case SPLIT_EVENLY -> Lang.t(Lang.UI_DIST_SPLIT);
+            default -> Lang.t(Lang.UI_DIST_ROUND);
+        };
+    }
+
+    private static Component redstoneLabel(Channel.RedstoneMode m) {
+        return switch (m) {
+            case HIGH -> Lang.t(Lang.UI_RED_HIGH);
+            case LOW -> Lang.t(Lang.UI_RED_LOW);
+            case NEVER -> Lang.t(Lang.UI_RED_NEVER);
+            default -> Lang.t(Lang.UI_RED_IGNORE);
+        };
     }
 
     private Component groupLabel(int gid) {
@@ -840,25 +944,6 @@ public class ChannelScreen extends Screen {
 
     private static Component typeLabel(Medium t) {
         return t.displayName();
-    }
-
-    private static Component distLabel(Channel.Distribution d) {
-        return switch (d) {
-            case PRIORITY -> Lang.t(Lang.UI_DIST_PRIORITY);
-            case NEAREST -> Lang.t(Lang.UI_DIST_NEAREST);
-            case FARTHEST -> Lang.t(Lang.UI_DIST_FARTHEST);
-            case SPLIT_EVENLY -> Lang.t(Lang.UI_DIST_SPLIT);
-            default -> Lang.t(Lang.UI_DIST_ROUND);
-        };
-    }
-
-    private static Component redstoneLabel(Channel.RedstoneMode m) {
-        return switch (m) {
-            case HIGH -> Lang.t(Lang.UI_RED_HIGH);
-            case LOW -> Lang.t(Lang.UI_RED_LOW);
-            case NEVER -> Lang.t(Lang.UI_RED_NEVER);
-            default -> Lang.t(Lang.UI_RED_IGNORE);
-        };
     }
 
     /** Format a per-second rate for display: 1M / 100k / 2.5G; display-only, never changes the stored value. */
@@ -896,10 +981,7 @@ public class ChannelScreen extends Screen {
     }
 
     private static int dimColor(String dim) {
-        if (dim.contains("nether")) return 0x8a3423;
-        if (dim.contains("end")) return 0x5b4a7a;
-        if (!dim.startsWith("minecraft:")) return 0x2f6d7a;   // modded dimension
-        return 0x3f6d32;
+        return P2PTheme.dimColor(dim);
     }
 
     /** Two-character dimension label that fits the endpoint row; the full id is available as a tooltip. */
@@ -931,24 +1013,16 @@ public class ChannelScreen extends Screen {
         return s + "…";
     }
 
-    private void inset(GuiGraphics gg, int x, int y, int w, int h) {
-        gg.fill(x, y, x + w, y + 1, SH);
-        gg.fill(x, y, x + 1, y + h, SH);
-        gg.fill(x, y + h - 1, x + w, y + h, HI);
-        gg.fill(x + w - 1, y, x + w, y + h, HI);
-    }
-
-    /** Medium tag: right-aligned plate that shrinks to the label width (capped), long names ellipsise. */
+    /** Medium tag: right-aligned chip that shrinks to the label width (capped), long names ellipsise. */
     private void typeTag(GuiGraphics gg, int bx, int by, @Nullable Medium t) {
         if (t == null) return;
         Component label = typeLabel(t);
         int textWidth = this.font.width(label);
         int tagWidth = Math.min(textWidth + 8, 56);
-        int x = bx + 28 - tagWidth;
-        gg.fill(x, by, x + tagWidth, by + 11, typeColor(t));
-        gg.fill(x, by, x + tagWidth, by + 1, 0x55FFFFFF);
+        int x = bx + 56 - tagWidth;
+        P2PTheme.chip(gg, x, by, tagWidth, 11, typeColor(t));
         Component shown = textWidth + 8 > tagWidth ? Component.literal(trim(label.getString(), tagWidth - 8)) : label;
-        gg.drawString(this.font, shown, x + 4, by + 2, 0xFFFFFFFF, false);
+        gg.drawString(this.font, shown, x + (tagWidth - this.font.width(shown)) / 2, by + 2, 0xFFFFFFFF, false);
     }
 
     private record LeftRow(int kind, int id, String label, Medium type, int color, boolean child) {}

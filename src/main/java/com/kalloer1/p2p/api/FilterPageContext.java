@@ -37,6 +37,18 @@ public final class FilterPageContext {
     public boolean isItemPage() { return screen.isItemPage(); }
     public Minecraft minecraft() { return screen.getMinecraft(); }
 
+    /**
+     * 标记网格的槽距（本体 18）。附属自定义色块必须按此对齐本体槽位井，
+     * 而不是把 18 写死在自己的绘制代码里。
+     */
+    public int markerPitch() { return screen.getMarkerPitch(); }
+
+    /**
+     * 本体「模式」行（白名单/黑名单）的屏幕矩形。规格 §4 要求附属过滤页的模式钮
+     * 与本体同行同规格，因此几何由本体给出，附属不再写死 {@code area.getY() + 102} 这类偏移。
+     */
+    public Rect2i modeRowArea() { return screen.getModeRowArea(); }
+
     /** 向界面注册一个可交互控件（按钮等），本体负责每帧绘制与点击派发。 */
     public <T extends GuiEventListener & Renderable & NarratableEntry> T addWidget(T widget) {
         return screen.addScreenWidget(widget);

@@ -81,10 +81,25 @@ public final class Lang {
     public static final String UI_DIM_NETHER = "p2p.ui.dim.nether";
     public static final String UI_DIM_END = "p2p.ui.dim.end";
 
-    // ---- unit short labels ----
-    public static final String UI_UNIT_ITEM = "p2p.ui.unit.item";
-    public static final String UI_UNIT_MB = "p2p.ui.unit.mb";
-    public static final String UI_UNIT_FE = "p2p.ui.unit.fe";
+    // ---- unit labels ----
+    /**
+     * 介质单位键前缀：{@code p2p.unit.<介质id，非字母数字换成下划线>}，如 {@code p2p.unit.create_stress}。
+     * 单位与介质 displayName 分开（旧 {@code p2p.ui.unit.*} 三键合并到此），
+     * 速率行因此只需并排显示「名称 + 单位」而不再截断长名称。
+     */
+    public static final String UNIT_PREFIX = "p2p.unit.";
+
+    /** 介质 id → 单位翻译键。 */
+    public static String unitKey(String mediumId) {
+        return UNIT_PREFIX + (mediumId == null ? "" : mediumId.replaceAll("[^A-Za-z0-9]", "_"));
+    }
+
+    /** 单位文案；该介质没有配键时返回空串（调用方只显示名称）。 */
+    public static String unitOf(String mediumId) {
+        String key = unitKey(mediumId);
+        String value = Component.translatable(key).getString();
+        return value.equals(key) ? "" : value;
+    }
 
     // ---- network role ----
     public static final String UI_ROLE_OWNER = "p2p.ui.role.owner";

@@ -6,6 +6,7 @@ import com.kalloer1.p2p.medium.Mediums;
 import com.kalloer1.p2p.network.ChannelActionC2SPacket;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -17,29 +18,24 @@ import java.util.List;
  * registry, so adding a new medium only requires calling {@code Mediums.register} from the
  * addon's {@code @Mod} constructor. No per-medium artwork is needed: each row is just text + a colored bar.
  *
- * <p>When addon mods register extra mediums the list may exceed the panel height, so rows are
+ * <p>When addon mods register extra mediums the list may exceed the card height, so rows are
  * clipped with {@link GuiGraphics#enableScissor} and the user can scroll with the mouse wheel.
+ *
+ * <p>1.2.0 skin: masked dialog + rounded white card (spec section 3, last row).
  */
 public class ChannelCreateScreen extends Screen {
-    private static final int W = 232, H = 176;
-    private static final int TITLE = P2PGuiTextures.TITLE;
-    private static final int INK = P2PGuiTextures.INK;
-    private static final int INK_DIM = P2PGuiTextures.INK_DIM;
+    private static final int W = 216, H = 184;
+    private static final int LIST_TOP = 26;
+    private static final int BTN_Y = H - 24;
+    private static final int ROW_H = P2PTheme.ROW_H;
+    /** Bottom of the scrollable area (pixels from card top). */
+    private static final int LIST_BOTTOM = BTN_Y - 8;
 
     private final Screen parent;
     private int leftPos, topPos;
 
     private List<Medium> media;
-    private int hovered = -1;
     private int scrollOffset = 0;
-
-    // geometry
-    private static final int ROW_W = 216, ROW_H = 19, ROW_X = 8, ROW_Y = 36, ROW_GAP = 2;
-    private static final int CANCEL_W = 88, CANCEL_H = 20, CANCEL_X = W - 96, CANCEL_Y = H - 26;
-    /** Bottom of the scrollable area (pixels from panel top). */
-    private static final int LIST_BOTTOM = CANCEL_Y - 4;
-    /** Max visible rows in the list area. */
-    private static final int MAX_VISIBLE = (LIST_BOTTOM - ROW_Y) / (ROW_H + ROW_GAP);
 
     public ChannelCreateScreen(Screen parent) {
         super(Lang.t(Lang.UI_NEW_CHANNEL));
@@ -52,38 +48,26 @@ public class ChannelCreateScreen extends Screen {
         topPos = (this.height - H) / 2;
         media = Mediums.all();
         clampScroll();
+        Component cancel = Lang.t(Lang.UI_CANCEL);
+        int w = this.font.width(cancel) + 12;
+        P2PFlatButton cancelBtn = new P2PFlatButton(Button.builder(cancel, b -> minecraft.setScreen(parent))
+                .bounds(leftPos + W - P2PTheme.PAD - w, topPos + BTN_Y, w, 14));
+        cancelBtn.setStyle(P2PFlatButton.Style.TEXT);
+        addRenderableWidget(cancelBtn);
     }
 
     @Override
     public void render(GuiGraphics gg, int mx, int my, float pt) {
         drawPanel(gg);
-        int cx = leftPos + ROW_X;
-
-        // clip rows to the scrollable area inside the panel
-        int clipX = leftPos;
-        int clipY = topPos + ROW_Y;
-        int clipW = W;
-        int clipH = LIST_BOTTOM - ROW_Y;
-        gg.enableScissor(clipX, clipY, clipX + clipW, clipY + clipH);
-
-        hovered = -1;
+        int cx = leftPos;
+        gg.enableScissor(cx + 1, topPos + LIST_TOP, cx + W - 1, topPos + LIST_BOTTOM);
         for (int i = 0; i < media.size(); i++) {
-            int cy = topPos + ROW_Y + i * (ROW_H + ROW_GAP) - scrollOffset;
-            // skip rows fully above or below the visible area (optimisation, scissor clips anyway)
-            if (cy + ROW_H < clipY || cy > clipY + clipH) continue;
-            boolean over = inside(mx, my, cx, cy, ROW_W, ROW_H);
-            if (over) hovered = i;
-            drawRow(gg, cx, cy, media.get(i), over);
+            int cy = topPos + LIST_TOP + i * ROW_H - scrollOffset;
+            if (cy + ROW_H < topPos + LIST_TOP || cy > topPos + LIST_BOTTOM) continue;
+            drawRow(gg, cx, cy, media.get(i), inside(mx, my, cx + 1, cy, W - 2, ROW_H));
         }
-
         gg.disableScissor();
-
-        // cancel button
-        int canX = leftPos + CANCEL_X, canY = topPos + CANCEL_Y;
-        boolean canOver = inside(mx, my, canX, canY, CANCEL_W, CANCEL_H);
-        P2PGuiTextures.button(gg, canX, canY, CANCEL_W, CANCEL_H, canOver, true);
-        Component cancel = Lang.t(Lang.UI_CANCEL);
-        gg.drawString(this.font, cancel, canX + (CANCEL_W - this.font.width(cancel)) / 2, canY + 6, INK, false);
+        super.render(gg, mx, my, pt);
     }
 
     @Override
@@ -92,46 +76,36 @@ public class ChannelCreateScreen extends Screen {
     }
 
     private void drawPanel(GuiGraphics gg) {
-        // full-screen dim
-        gg.fill(0, 0, this.width, this.height, 0x66000000);
-        // main panel from atlas
-        P2PGuiTextures.panel(gg, leftPos, topPos, W, H);
-        // header strip
-        gg.fill(leftPos, topPos, leftPos + W, topPos + 17, 0xFF2f2f2f);
-        gg.drawString(this.font, Lang.t(Lang.UI_CREATE_HEADER), leftPos + 8, topPos + 5, TITLE, false);
+        P2PTheme.dialog(gg, this.width, this.height, leftPos, topPos, W, H, this.font, Lang.t(Lang.UI_CREATE_HEADER));
     }
 
     private void drawRow(GuiGraphics gg, int x, int y, Medium m, boolean hovered) {
-        P2PGuiTextures.button(gg, x, y, ROW_W, ROW_H, hovered, true);
-        // 4px colored bar on the left, inset inside the button bevel
-        gg.fill(x + 3, y + 4, x + 7, y + ROW_H - 4, m.argbColor);
-        Component name = m.displayName();
-        gg.drawString(this.font, name, x + 12, y + 6, INK, false);
+        if (hovered) gg.fill(x + 1, y, x + W - 1, y + ROW_H, P2PTheme.CARD_SEL);
+        // 4px colored bar on the left, inset by the 8pt card padding
+        P2PTheme.drawRoundRect(gg, x + P2PTheme.PAD, y + 3, 4, ROW_H - 6, 2, m.argbColor);
+        gg.drawString(this.font, m.displayName(), x + P2PTheme.PAD + 10, y + 5, P2PTheme.TEXT_PRIMARY, false);
+        gg.fill(x + P2PTheme.PAD, y + ROW_H - 1, x + W - P2PTheme.PAD, y + ROW_H, P2PTheme.SEPARATOR);
     }
 
     @Override
     public boolean mouseScrolled(double mx, double my, double scrollX, double scrollY) {
         // scrollY > 0 = scroll up (toward row 0), scrollY < 0 = scroll down
-        int step = ROW_H + ROW_GAP;
-        scrollOffset -= (int) (scrollY * step);
+        scrollOffset -= (int) (scrollY * ROW_H);
         clampScroll();
         return true;
     }
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
-        if (button != 0) return super.mouseClicked(mx, my, button);
-        int cx = leftPos + ROW_X;
-        for (int i = 0; i < media.size(); i++) {
-            int cy = topPos + ROW_Y + i * (ROW_H + ROW_GAP) - scrollOffset;
-            if (inside(mx, my, cx, cy, ROW_W, ROW_H)) {
-                create(media.get(i));
-                return true;
+        if (button == 0) {
+            int cx = leftPos;
+            for (int i = 0; i < media.size(); i++) {
+                int cy = topPos + LIST_TOP + i * ROW_H - scrollOffset;
+                if (inside(mx, my, cx + 1, cy, W - 2, ROW_H)) {
+                    create(media.get(i));
+                    return true;
+                }
             }
-        }
-        if (inside(mx, my, leftPos + CANCEL_X, topPos + CANCEL_Y, CANCEL_W, CANCEL_H)) {
-            minecraft.setScreen(parent);
-            return true;
         }
         return super.mouseClicked(mx, my, button);
     }
@@ -149,8 +123,8 @@ public class ChannelCreateScreen extends Screen {
 
     /** Clamp scrollOffset so the list never scrolls past the first or last row. */
     private void clampScroll() {
-        int totalH = media.size() * (ROW_H + ROW_GAP);
-        int visibleH = LIST_BOTTOM - ROW_Y;
+        int totalH = media.size() * ROW_H;
+        int visibleH = LIST_BOTTOM - LIST_TOP;
         if (totalH <= visibleH) {
             scrollOffset = 0;
         } else {
