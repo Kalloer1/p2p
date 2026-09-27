@@ -1,0 +1,961 @@
+package com.kalloer1.p2p.client.screen;
+
+import com.kalloer1.p2p.Lang;
+import com.kalloer1.p2p.P2P;
+import com.kalloer1.p2p.api.ChannelScreenExtension;
+import com.kalloer1.p2p.api.ChannelScreenExtensions;
+import com.kalloer1.p2p.api.DetailContext;
+import com.kalloer1.p2p.channel.Channel;
+import com.kalloer1.p2p.channel.Group;
+import com.kalloer1.p2p.channel.Member;
+import com.kalloer1.p2p.channel.Network;
+import com.kalloer1.p2p.channel.Role;
+import com.kalloer1.p2p.client.ClientChannelCache;
+import com.kalloer1.p2p.client.screen.P2PGuiTextures;
+import com.kalloer1.p2p.medium.Medium;
+import com.kalloer1.p2p.medium.Mediums;
+import com.kalloer1.p2p.network.ChannelActionC2SPacket;
+import com.kalloer1.p2p.network.ModMessages;
+import com.kalloer1.p2p.network.RequestChannelsC2SPacket;
+import com.kalloer1.p2p.network.SetBindChannelC2SPacket;
+import com.mojang.blaze3d.platform.InputConstants;
+import net.minecraft.ChatFormatting;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.nbt.Tag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * Pure-client configuration screen (384×208 panel + 16px top tab = 224 total, within the 232px ceiling).
+ * Left: search + group tree + named channel list. Right: selected channel detail with an endpoint table.
+ * Endpoints expose a clear "过滤" button (no hidden double-click) and an "⇄" IN/OUT toggle that is sent
+ * straight to the server (SET_ROLE). The face/direction of an endpoint is world-bound and labelled as such.
+ * The top tab shows the current network and lets the player page between visible networks.
+ */
+public class ChannelScreen extends Screen {
+
+    private static final int W = 384;
+    private static final int H = 208; // panel; +16 top tab = 224 total, within 232 ceiling
+
+    // ---- palette (MC stone) ----
+    private static final int STONE = P2PGuiTextures.ROW_BG, HI = P2PGuiTextures.FAUX_HI, SH = P2PGuiTextures.FAUX_SH;
+    private static final int LEFT_BG = P2PGuiTextures.ROW_BG, RIGHT_BG = P2PGuiTextures.ROW_BG2, SEL = P2PGuiTextures.SEL, GRP_BG = P2PGuiTextures.GRP_BG, TAB = P2PGuiTextures.TAB_BG;
+    private static final int INK = P2PGuiTextures.INK, INK_DIM = P2PGuiTextures.INK_DIM, TITLE = P2PGuiTextures.TITLE;
+    private static final int IN_C = 0xFFd93a3a, OUT_C = 0xFF3a7ad9; // INPUT=red, OUTPUT=blue
+
+    private int leftPos, topPos;
+    private CompoundTag lastData = null;
+
+    private final List<Channel> channels = new ArrayList<>();
+    private final List<Group> groups = new ArrayList<>();
+    private final List<Network> nets = new ArrayList<>();
+    private int netIndex = 0;
+    private int currentNetId = -1;
+
+    private int selectedChannel = -1;
+    private int selectedMember = -1;
+    private int selectedGroup = -1;      // selectable group header; 删除组 targets it first
+
+    private final Set<Integer> openGroups = new HashSet<>();
+    private EditBox searchBox;
+    private P2PFlatButton redstoneBtn, distBtn, rateDown, rateUp, speedDown, speedUp, groupBtn, bindBtn, deleteBtn, cleanBtn, createCh, createGrp, deleteGrpBtn, prevNet, nextNet, typeBtn, maxRateBtn, chunkLoadBtn;
+    private EditBox rateEdit, speedEdit;
+    private boolean rateFocusPrev = false, speedFocusPrev = false;
+
+    private final List<Hit> leftRects = new ArrayList<>();
+    private final List<MemberBtn> memberBtns = new ArrayList<>();
+    private final List<PosHit> posHits = new ArrayList<>();
+    private final List<BlockHit> blockHits = new ArrayList<>();
+    private final List<DimHit> dimHits = new ArrayList<>();
+    private final List<FaceHit> faceHits = new ArrayList<>();
+    private int lastDblIndex = -1;
+    private long lastDblTime = 0;
+    private int nameHitX, nameHitY, nameHitW, nameHitH;
+    private boolean nameHitValid = false;
+    private int netNameHitX, netNameHitW;
+    private boolean netNameHitValid = false;
+
+    private int leftScroll = 0, leftContentH = 0;
+    private int memberScroll = 0, memberContentH = 0;
+
+    public ChannelScreen() { super(Lang.t(Lang.UI_TITLE)); }
+
+    // ============================================================ init
+    @Override
+    protected void init() {
+        leftPos = (this.width - W) / 2;
+        topPos = (this.height - H) / 2;   // top tab drawn at topPos-16
+        // restore the last GUI state across reopen (selected channel/group, expanded groups)
+        selectedChannel = ClientChannelCache.INSTANCE.getSelectedChannelId();
+        selectedGroup = ClientChannelCache.INSTANCE.getSelectedGroupId();
+        openGroups.clear();
+        openGroups.addAll(ClientChannelCache.INSTANCE.getOpenGroups());
+
+        int lx = leftPos + 4, lw = 140;
+        searchBox = new EditBox(this.font, lx + 4, topPos + 8, lw - 12, 14, Lang.t(Lang.UI_SEARCH));
+        searchBox.setMaxLength(32);
+        searchBox.setBordered(true);
+        addRenderableWidget(searchBox);
+
+        int rx = leftPos + 148, rw = W - 148 - 4;
+        int btnGap = 4;
+        int btnW = (rw - 4 * btnGap) / 5;              // row: 红石/分配/分组/清理空气/区块加载 — five unified buttons
+        redstoneBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_REDSTONE, redstoneLabel(Channel.RedstoneMode.ALWAYS)), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_REDSTONE, 0)).bounds(rx, topPos + 30, btnW, 18)));
+        distBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DISTRIBUTION, distLabel(Channel.Distribution.ROUND_ROBIN)), b -> sendAction(ChannelActionC2SPacket.Action.CYCLE_DISTRIBUTION, 0)).bounds(rx + btnW + btnGap, topPos + 30, btnW, 18)));
+        groupBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_GROUP, groupLabel(-1)), b -> openGroupSelect()).bounds(rx + 2 * (btnW + btnGap), topPos + 30, btnW, 18)));
+        cleanBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_CLEAN_AIR), b -> sendAction(ChannelActionC2SPacket.Action.CLEAN_AIR, 0)).bounds(rx + 3 * (btnW + btnGap), topPos + 30, btnW, 18)));
+        chunkLoadBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_CHUNKLOAD_OFF), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_CHUNKLOAD, 0)).bounds(rx + 4 * (btnW + btnGap), topPos + 30, btnW, 18)));
+
+        // rate: editable value + fine step + unit
+        rateEdit = new EditBox(this.font, rx + 24, topPos + 48, 46, 14, Component.literal(""));
+        rateEdit.setMaxLength(10);
+        rateEdit.setBordered(true);
+        rateEdit.setTextColor(0xFFFFFFFF);
+        addRenderableWidget(rateEdit);
+        rateDown = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("-"), b -> stepRate(-16)).bounds(rx + 74, topPos + 48, 18, 16)));
+        rateUp = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("+"), b -> stepRate(16)).bounds(rx + 92, topPos + 48, 18, 16)));
+        maxRateBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_RATE_MAX), b -> sendAction(ChannelActionC2SPacket.Action.SET_RATE, ChannelActionC2SPacket.RATE_MAX)).bounds(rx + 112, topPos + 48, 34, 16)));
+
+        // speed (throttle): how many ticks between passes
+        speedEdit = new EditBox(this.font, rx + 24, topPos + 66, 46, 14, Component.literal(""));
+        speedEdit.setMaxLength(7);
+        speedEdit.setBordered(true);
+        speedEdit.setTextColor(0xFFFFFFFF);
+        addRenderableWidget(speedEdit);
+        speedDown = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("-"), b -> stepSpeed(-1)).bounds(rx + 74, topPos + 66, 18, 16)));
+        speedUp = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("+"), b -> stepSpeed(1)).bounds(rx + 92, topPos + 66, 18, 16)));
+
+        bindBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_BIND_CHANNEL), b -> {
+            if (selectedChannel >= 0) ModMessages.sendToServer(new SetBindChannelC2SPacket(selectedChannel));
+        }).bounds(rx, topPos + H - 22, (rw - 8) / 2, 18)));
+        deleteBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DELETE_CHANNEL).withStyle(ChatFormatting.RED), b -> sendAction(ChannelActionC2SPacket.Action.DELETE, 0)).bounds(rx + (rw - 8) / 2 + 8, topPos + H - 22, (rw - 8) / 2, 18)));
+
+        int btnL = (lw - 2 * btnGap) / 3;              // bottom-left row: 新建频道/新建组/删除组 — unified size
+        createCh = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_NEW_CHANNEL), b -> minecraft.setScreen(new ChannelCreateScreen(this))).bounds(lx, topPos + H - 22, btnL, 18)));
+        createGrp = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_NEW_GROUP), b -> minecraft.setScreen(new NameInputScreen(this, Lang.t(Lang.UI_NEW_GROUP), "", 1, -1, null))).bounds(lx + btnL + btnGap, topPos + H - 22, btnL, 18)));
+        deleteGrpBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DELETE_GROUP).withStyle(ChatFormatting.RED), b -> {
+            int targetGrp = selectedGroup;
+            if (targetGrp < 0) {
+                Channel gc = findChannel(selectedChannel);
+                if (gc != null && gc.groupId >= 0) targetGrp = gc.groupId;
+            }
+            if (targetGrp >= 0) {
+                sendAction(ChannelActionC2SPacket.Action.DELETE_GROUP, targetGrp);
+                selectedGroup = -1;
+                saveUiState();
+            }
+        }).bounds(lx + 2 * (btnL + btnGap), topPos + H - 22, btnL, 18)));
+
+        prevNet = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("<"), b -> pageNet(-1)).bounds(leftPos + W - 56, topPos - 16 + 1, 18, 14)));
+        nextNet = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal(">"), b -> pageNet(1)).bounds(leftPos + W - 36, topPos - 16 + 1, 18, 14)));
+
+        typeBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_MEDIUM), b -> cycleType()).bounds(rx + rw - 70, topPos + 10, 66, 14)));
+
+        ModMessages.sendToServer(new RequestChannelsC2SPacket());
+    }
+
+    // ============================================================ data
+    private Channel findChannel(int id) {
+        for (Channel c : channels) if (c.id == id) return c;
+        return null;
+    }
+
+    private List<Channel> channelsOf(Group g) {
+        List<Channel> out = new ArrayList<>();
+        for (Channel c : channels) if (c.groupId == g.id) out.add(c);
+        return out;
+    }
+
+    private void reparse() {
+        CompoundTag data = ClientChannelCache.INSTANCE.getData();
+        if (data == null || data == lastData) return;
+        lastData = data;
+        nets.clear();
+        for (Tag t : data.getList("networks", Tag.TAG_COMPOUND)) nets.add(Network.deserializeNBT((CompoundTag) t));
+        if (nets.isEmpty()) { currentNetId = -1; }
+        else {
+            int want = ClientChannelCache.INSTANCE.getCurrentNetworkId();
+            if (want >= 0) for (int i = 0; i < nets.size(); i++) if (nets.get(i).id == want) { netIndex = i; break; }
+            netIndex = Math.max(0, Math.min(netIndex, nets.size() - 1));
+            currentNetId = nets.get(netIndex).id;
+            ClientChannelCache.INSTANCE.setCurrentNetworkId(currentNetId);
+        }
+        channels.clear();
+        groups.clear();
+        for (Tag t : data.getList("groups", Tag.TAG_COMPOUND)) {
+            Group g = Group.deserializeNBT((CompoundTag) t);
+            if (g.networkId == currentNetId) groups.add(g);
+        }
+        for (Tag t : data.getList("channels", Tag.TAG_COMPOUND)) {
+            Channel c = Channel.deserializeNBT((CompoundTag) t, this.minecraft.level.registryAccess());
+            if (c.networkId == currentNetId) channels.add(c);
+        }
+        if (findChannel(selectedChannel) == null) selectedChannel = channels.isEmpty() ? -1 : channels.get(0).id;
+                if (selectedGroup >= 0) {
+                    boolean gOk = false;
+                    for (Group g : groups) if (g.id == selectedGroup) { gOk = true; break; }
+                    if (!gOk) selectedGroup = -1;
+                }
+                selectedMember = -1;
+                saveUiState();
+        P2P.LOGGER.info("[p2p] ChannelScreen reparse: nets={} groups={} channels={} currentNet={} selected={}",
+                nets.size(), groups.size(), channels.size(), currentNetId, selectedChannel);
+    }
+
+    // ============================================================ render
+    @Override
+    public void render(GuiGraphics gg, int mx, int my, float pt) {
+        reparse();
+        // Draw our own panel directly; do not rely on Screen.renderBackground() dispatch,
+        // because some modded environments (Sodium/ModernUI shader/screen mixins) skip or
+        // override the standard background path, leaving the panel invisible.
+        drawPanel(gg);
+        super.render(gg, mx, my, pt);
+        // commit rate/speed edits when the box loses focus (clicked elsewhere / switched field)
+        if (rateFocusPrev && !rateEdit.isFocused()) commitRate();
+        if (speedFocusPrev && !speedEdit.isFocused()) commitSpeed();
+        rateFocusPrev = rateEdit.isFocused();
+        speedFocusPrev = speedEdit.isFocused();
+        // dimension tooltip: the row only has room for a 2-char label, so the full id is shown on hover
+        for (DimHit d : dimHits) {
+            if (mx >= d.x && mx <= d.x + d.w && my >= d.y && my <= d.y + d.h) {
+                gg.renderTooltip(this.font, Lang.t(Lang.HUD_DIMENSION, d.dim), mx, my);
+                break;
+            }
+        }
+        // block icon tooltip: shows the block name at this endpoint's position.
+        // 名称取自 ItemStack 显示名（JEI 同款）而不是 Block.getName()——后者的翻译键不含参数，
+        // 精妙存储这类「%s箱子」模板名会渲染成字面的 "%s钻石箱子"。
+        for (BlockHit b : blockHits) {
+            if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+                gg.renderTooltip(this.font, Component.empty()
+                        .append(Lang.t(Lang.HUD_BLOCK))
+                        .append(b.icon.getHoverName()), mx, my);
+                break;
+            }
+        }
+    }
+
+    @Override
+    public void renderBackground(GuiGraphics gg, int mx, int my, float pt) {
+        // no-op: drawPanel() already covers the screen with our own dim + panel
+    }
+
+    private void drawPanel(GuiGraphics gg) {
+        int x = leftPos, y = topPos;
+        gg.fill(0, 0, this.width, this.height, 0x66000000);
+
+        // top tab (drawn above the panel)
+        int ty = y - 16;
+        gg.fill(x, ty, x + W, ty + 16, TAB);
+        gg.fill(x, ty, x + W, ty + 1, HI);
+        gg.drawString(this.font, Lang.t(Lang.UI_TITLE), x + 6, ty + 4, TITLE, false);
+        if (!nets.isEmpty()) {
+            String nm = trim(nets.get(netIndex).name, 200);
+            int nmX = x + W / 2 - this.font.width(nm) / 2;
+            gg.drawString(this.font, Component.literal(nm), nmX, ty + 4, 0xFFB8BEC4, false);
+            gg.drawString(this.font, Component.literal("▾"), nmX + this.font.width(nm) + 4, ty + 4, 0xFFB8BEC4, false);
+            netNameHitX = nmX; netNameHitW = this.font.width(nm) + 12; netNameHitValid = true;
+        } else netNameHitValid = false;
+        // main panel from atlas (9-slice)
+        P2PGuiTextures.panel(gg, x, y, W, H);
+
+        drawLeft(gg);
+        drawRight(gg);
+        fitConfigRow();
+    }
+
+    /**
+     * Re-flows the 红石/分配/分组/清理空气/区块加载 row to its messages' real widths; the fixed
+     * per-button width makes longer (e.g. Chinese) labels spill past the panel edge. Runs after
+     * drawRight refreshed the messages and before renderWidgets draws the buttons.
+     */
+    private void fitConfigRow() {
+        if (redstoneBtn == null || !redstoneBtn.visible) return;
+        P2PFlatButton[] row = {redstoneBtn, distBtn, groupBtn, cleanBtn, chunkLoadBtn};
+        int rx = leftPos + 148;
+        int rw = W - 148 - 4;
+        int gap = 4;
+        int padding = 8;
+        int[] textWidths = new int[row.length];
+        int textTotal = 0;
+        for (int i = 0; i < row.length; i++) {
+            textWidths[i] = this.font.width(row[i].getMessage());
+            textTotal += textWidths[i];
+        }
+        int budget = rw - gap * (row.length - 1) - row.length * padding;
+        float scale = textTotal <= budget ? 1f : (float) budget / textTotal;
+        int x = rx;
+        for (int i = 0; i < row.length; i++) {
+            int text = Math.max(12, Math.round(textWidths[i] * scale));
+            if (text < textWidths[i]) row[i].setMessage(Component.literal(trim(row[i].getMessage().getString(), text)));
+            row[i].setX(x);
+            row[i].setWidth(text + padding);
+            x += text + padding + gap;
+        }
+    }
+
+    // ---------- left: search + group tree + channel list ----------
+    private void drawLeft(GuiGraphics gg) {
+        int x = leftPos, y = topPos, lx = x + 4, lw = 140;
+        int listTop = y + 28, listBottom = y + H - 26, rowH = 16;
+        int listH = listBottom - listTop;
+
+        inset(gg, lx + 1, y + 6, lw - 2, 18);            // search frame
+
+        gg.fill(lx, listTop, lx + lw, listBottom, LEFT_BG);
+        inset(gg, lx, listTop, lw, listH);
+
+        List<LeftRow> rows = buildLeftRows();
+        leftContentH = rows.size() * rowH;
+        leftScroll = clamp(leftScroll, 0, Math.max(0, leftContentH - listH));
+        leftRects.clear();
+
+        int baseY = listTop - leftScroll;
+        for (int i = 0; i < rows.size(); i++) {
+            int ry = baseY + i * rowH;
+            if (ry + rowH <= listTop) continue;
+            if (ry > listBottom) break;
+            LeftRow r = rows.get(i);
+            if (r.kind == 0) { // group header — selectable tree node
+                boolean gSel = r.id == selectedGroup;
+                gg.fill(lx + 1, ry, lx + lw - 1, ry + rowH, gSel ? SEL : GRP_BG);
+                gg.fill(lx + 2, ry + 2, lx + 6, ry + rowH - 2, r.color == 0 ? 0xFF6b6b6b : r.color);
+                String caret = openGroups.contains(r.id) ? "▾" : "▸";
+                gg.drawString(this.font, Component.literal(caret + " " + trim(r.label, lw - 32)), lx + 10, ry + 4, gSel ? 0xFFFFFFFF : INK, false);
+                String cnt = String.valueOf(groupCount(r.id));
+                gg.drawString(this.font, Component.literal(cnt), lx + lw - 8 - this.font.width(cnt), ry + 4, INK_DIM, false);
+                leftRects.add(new Hit(lx + 1, ry, lw - 2, rowH, 0, r.id));
+                gg.fill(lx + 1, ry + rowH - 1, lx + lw - 1, ry + rowH, P2PGuiTextures.SEP);   // separator under header
+            } else { // channel row — child rows are indented with a left tree guide line
+                boolean sel = r.id == selectedChannel;
+                if (sel) gg.fill(lx + 1, ry, lx + lw - 1, ry + rowH, SEL);
+                if (r.child) gg.fill(lx + 2, ry + 2, lx + 4, ry + rowH - 2, 0xFF5A6068);  // tree guide line
+                int ind = r.child ? 26 : 8;
+                int rowInk = sel ? 0xFFFFFFFF : INK_DIM;
+                // show the channel name only (no "#id" prefix); trim so the type tag fits inside the list border
+                int nameMax = lw - 42 - (r.child ? 18 : 0);
+                gg.drawString(this.font, Component.literal(trim(r.label, nameMax)), lx + ind, ry + 4, rowInk, false);
+                // medium tag moved left (28px wide) so its right edge stays inside the list bevel
+                typeTag(gg, lx + lw - 32, ry + 2, r.type);
+                leftRects.add(new Hit(lx + 1, ry, lw - 2, rowH, 1, r.id));
+                gg.fill(lx + 1, ry + rowH - 1, lx + lw - 1, ry + rowH, P2PGuiTextures.SEP);   // row separator
+            }
+        }
+            if (rows.isEmpty())
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_MATCH), lx + 8, listTop + 10, INK_DIM, false);
+    }
+
+    private List<LeftRow> buildLeftRows() {
+        List<LeftRow> out = new ArrayList<>();
+        String q = searchBox != null ? searchBox.getValue().trim().toLowerCase() : "";
+        for (Group g : groups) {
+            if (!q.isEmpty() && !matchGroup(g, q)) continue;
+            out.add(new LeftRow(0, g.id, g.name, null, g.color, false));
+            // a search forces every matching group open; otherwise the group follows its own expanded state
+            boolean open = !q.isEmpty() || openGroups.contains(g.id);
+            if (open) for (Channel c : channelsOf(g)) {
+                if (!q.isEmpty() && !matchCh(c, q)) continue;
+                out.add(new LeftRow(1, c.id, c.name == null ? "#" + c.id : c.name, c.type, typeColor(c.type), true));
+            }
+        }
+        for (Channel c : channels) {
+            if (c.groupId >= 0) continue;
+            if (!q.isEmpty() && !matchCh(c, q)) continue;
+            out.add(channelRow(c));
+        }
+        return out;
+    }
+
+    /** Persist selection/expansion into the client cache so reopening the GUI restores it. */
+    private void saveUiState() {
+        ClientChannelCache.INSTANCE.setSelectedChannelId(selectedChannel);
+        ClientChannelCache.INSTANCE.setSelectedGroupId(selectedGroup);
+        ClientChannelCache.INSTANCE.setOpenGroups(openGroups);
+    }
+
+    private LeftRow channelRow(Channel c) {
+        return new LeftRow(1, c.id, c.name == null ? "#" + c.id : c.name, c.type, typeColor(c.type), false);
+    }
+
+    private int groupCount(int gid) {
+        int n = 0;
+        for (Channel c : channels) if (c.groupId == gid) n++;
+        return n;
+    }
+
+    // ---------- right: selected channel detail ----------
+    private void drawRight(GuiGraphics gg) {
+        int x = leftPos, y = topPos, rx = x + 148, rw = W - 148 - 4;
+        nameHitValid = false;
+        Channel c = findChannel(selectedChannel);
+        boolean has = c != null;
+        redstoneBtn.visible = distBtn.visible = rateDown.visible = rateUp.visible = speedDown.visible = speedUp.visible
+                = rateEdit.visible = speedEdit.visible = groupBtn.visible = bindBtn.visible = deleteBtn.visible = cleanBtn.visible
+                = maxRateBtn.visible = has;
+        typeBtn.visible = has;
+        if (deleteGrpBtn != null) deleteGrpBtn.active = has && (selectedGroup >= 0 || (c != null && c.groupId >= 0));
+        if (!has) {
+            gg.fill(rx, y + 8, rx + rw, y + H - 26, RIGHT_BG);
+            inset(gg, rx, y + 8, rw, (y + H - 26) - (y + 8));
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL), rx + 10, y + 24, INK, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT1), rx + 10, y + 44, INK_DIM, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT2), rx + 10, y + 62, INK_DIM, false);
+            return;
+        }
+
+        // header: #id  name  [type tag] — white text on a dark strip to match the button style
+        int headerTop = y + 8, headerH = 18;
+        gg.fill(rx, headerTop, rx + rw, headerTop + headerH, TAB);
+        inset(gg, rx, headerTop, rw, headerH);
+        gg.drawString(this.font, Component.literal("#" + c.id), rx + 4, y + 11, TITLE, false);
+        String nm = trim(c.name == null ? "#" + c.id : c.name, rw - 108);
+        gg.drawString(this.font, Component.literal(nm), rx + 34, y + 10, TITLE, false);
+        nameHitX = rx + 34; nameHitY = y + 8; nameHitW = this.font.width(nm) + 4; nameHitH = 15; nameHitValid = true;
+
+        // config reflects state
+        redstoneBtn.setMessage(Lang.t(Lang.UI_REDSTONE, redstoneLabel(c.redstoneMode)));
+        distBtn.setMessage(Lang.t(Lang.UI_DISTRIBUTION, distLabel(c.distribution)));
+        groupBtn.setMessage(Lang.t(Lang.UI_GROUP, groupLabel(c.groupId)));
+        // cleanBtn's message is static, so fitConfigRow's ellipsis would be permanent without this reset
+        cleanBtn.setMessage(Lang.t(Lang.UI_CLEAN_AIR));
+        typeBtn.setMessage(Lang.t(Lang.UI_MEDIUM, typeLabel(c.type)));
+        // chunk loading is a network-level switch shown next to the channel-level buttons
+        Network net = null;
+        for (Network nn : nets) if (nn.id == c.networkId) { net = nn; break; }
+        boolean netLoad = net != null && net.chunkLoad;
+        chunkLoadBtn.setMessage(Lang.t(netLoad ? Lang.UI_CHUNKLOAD_ON : Lang.UI_CHUNKLOAD_OFF));
+        chunkLoadBtn.setSelected(netLoad);
+        // rate / speed editable values (refresh the box text only when not actively typing)
+        if (!rateEdit.isFocused() && !rateEdit.getValue().equals(String.valueOf(c.rate))) rateEdit.setValue(String.valueOf(c.rate));
+        if (!speedEdit.isFocused() && !speedEdit.getValue().equals(String.valueOf(c.speed))) speedEdit.setValue(String.valueOf(c.speed));
+
+        // per-medium extension: a medium may take over the whole right-hand detail panel
+        // (hides the generic rate/throttle controls, skips the default endpoint table)
+        ChannelScreenExtension ext = extensionFor(c);
+        if (ext != null && ext.replacesDefaultPanel(c)) {
+            rateDown.visible = rateUp.visible = speedDown.visible = speedUp.visible = maxRateBtn.visible = false;
+            rateEdit.visible = speedEdit.visible = false;
+            memberBtns.clear(); posHits.clear(); dimHits.clear(); blockHits.clear(); faceHits.clear();
+            ext.drawDetails(detailContext(), gg, c);
+            return;
+        }
+
+        String unitShort = c.type == Mediums.ITEM ? Lang.t(Lang.UI_UNIT_ITEM).getString() : c.type == Mediums.FLUID ? Lang.t(Lang.UI_UNIT_MB).getString() : c.type == Mediums.ENERGY ? Lang.t(Lang.UI_UNIT_FE).getString() : c.type.displayName().getString();
+        gg.drawString(this.font, Lang.t(Lang.UI_RATE), rx, y + 50, INK, false);
+        gg.drawString(this.font, Component.literal(unitShort + "≈" + formatPerSec(c.rate, c.speed) + "/s"), rx + 150, y + 58, INK_DIM, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_THROTTLE), rx, y + 68, INK, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_EVERY_TICKS, c.speed), rx + 114, y + 68, INK_DIM, false);
+
+        // endpoint table (fixed-column layout so direction and IN/OUT line up regardless of coordinate width).
+        // Group/clean buttons moved up to the 红石/分配 row, so the table starts sooner and shows more coordinates.
+        int mTop = y + 88, mBottom = y + H - 26;
+        int rowH = 16, listH = mBottom - mTop - headerH;
+        gg.fill(rx, mTop, rx + rw, mBottom, RIGHT_BG);
+        inset(gg, rx, mTop, rw, mBottom - mTop);
+        // header strip
+        gg.fill(rx + 1, mTop + 1, rx + rw - 1, mTop + headerH - 1, SEL);
+        gg.drawString(this.font, Lang.t(Lang.UI_DIM), rx + 4, mTop + 5, 0xFFE0E0E0, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_POS), rx + 29, mTop + 5, 0xFFE0E0E0, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_FACE), rx + 93, mTop + 5, 0xFFE0E0E0, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_FLOW), rx + 108, mTop + 5, 0xFFE0E0E0, false);
+        Component cnt = Lang.t(Lang.UI_MEMBER_COUNT, c.members.size());
+        gg.drawString(this.font, cnt, rx + rw - 6 - this.font.width(cnt), mTop + 5, 0xFFE0E0E0, false);
+
+        memberBtns.clear();
+        posHits.clear();
+        dimHits.clear();
+        blockHits.clear();
+        if (c.members.isEmpty()) {
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_ENDPOINT), rx + 10, mTop + 26, 0xFFE0E0E0, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT2), rx + 10, mTop + 42, P2PGuiTextures.INK_DIM, false);
+            if (ext != null) ext.drawDetails(detailContext(), gg, c);
+            return;
+        }
+        memberContentH = c.members.size() * rowH;
+        memberScroll = clamp(memberScroll, 0, Math.max(0, memberContentH - listH));
+        int baseY = mTop + headerH - memberScroll;
+
+        // fixed column positions (relative to rx). Coordinates are LEFT-aligned close to the dimension label so
+        // every row starts at the same x; longer coordinates are ellipsised instead of pushing the other columns.
+        final int colIconX = 1;                         // 16px 方块图标（坐标节点旁）
+        final int colDimX = 19, colDimW = 4;            // colour pill
+        final int colDimTextX = 25;                     // 2-char dimension label (tooltip = full id)
+        final int colPosX = 41, colPosW = 48;
+        final int colFaceX = 92, colFaceW = 14;         // direction column, centered
+        final int colRoleX = 108;                       // IN/OUT square + text
+        final int colToggleX = 108, colToggleW = 16;    // IN/OUT swap button
+        final int colPriorityX = 125, colPriorityW = 16; // priority value (click to type any number)
+        final int colFilterX = 142, colFilterW = 38;
+        final int colDelX = 208, colDelW = 20;          // remove endpoint (red ×)
+
+        for (int i = 0; i < c.members.size(); i++) {
+            int ry = baseY + i * rowH;
+            if (ry + rowH <= mTop + headerH) continue;
+            if (ry > mBottom) break;
+            Member m = c.members.get(i);
+            boolean sel = i == selectedMember;
+            if (sel) gg.fill(rx + 1, ry, rx + rw - 1, ry + rowH, SEL);
+            // subtle row separator
+            gg.fill(rx + 2, ry + rowH - 1, rx + rw - 2, ry + rowH, P2PGuiTextures.SEP);
+
+            // 方块图标：坐标节点旁显示该位置方块，方便辨认。
+            // 同维度且区块已加载时优先实时取（pick-stack + 方块实体 NBT 能还原模组方块的变体/染色，
+            // 如精妙存储「橡木钻石箱子」的木材类型——JEI 对物品名的显示也以 ItemStack 为准）；
+            // 否则退回绑定时记录的 Member.blockId——这样跨维度 / 区块未加载的端点也有图标。
+            ItemStack icon = ItemStack.EMPTY;
+            if (this.minecraft.level != null && this.minecraft.level.dimension().location().equals(m.dim)) {
+                BlockState st = this.minecraft.level.getBlockState(m.pos);
+                Block blk = st.getBlock();
+                if (blk != Blocks.AIR && blk.asItem() != Items.AIR) {
+                    ItemStack pick = blk.getCloneItemStack(st,
+                            new BlockHitResult(Vec3.atCenterOf(m.pos), m.face, m.pos, false),
+                            this.minecraft.level, m.pos, this.minecraft.player);
+                    if (pick.isEmpty()) pick = new ItemStack(blk.asItem());
+                    // 把方块实体的 NBT 挂到 pick-stack 上（vanilla BlockItem 同款 "BlockEntityTag"），
+                    // 模组物品（精妙存储等）读它还原木材/等级变体，图标与名称才会和世界里的实际方块一致。
+                    BlockEntity be = this.minecraft.level.getBlockEntity(m.pos);
+                    if (be != null) {
+                        CompoundTag beTag = be.saveWithFullMetadata(this.minecraft.level.registryAccess());
+                        beTag.remove("id");
+                        BlockItem.setBlockEntityData(pick, be.getType(), beTag);
+                    }
+                    icon = pick;
+                }
+            }
+            if (icon.isEmpty() && m.blockId != null) {
+                // BuiltInRegistries.BLOCK 是 DefaultedRegistry：查不到返回 AIR 而不是 null
+                Block blk = BuiltInRegistries.BLOCK.get(m.blockId);
+                if (blk != Blocks.AIR && blk.asItem() != Items.AIR) {
+                    icon = new ItemStack(blk.asItem());
+                }
+            }
+            if (!icon.isEmpty()) {
+                gg.renderItem(icon, rx + colIconX, ry + 0);
+                blockHits.add(new BlockHit(i, rx + colIconX, ry, 16, 16, icon));
+            }
+
+            // dimension: colour pill + short label (hover shows the full dimension id)
+            String dimId = m.dim.toString();
+            gg.fill(rx + colDimX, ry + 3, rx + colDimX + colDimW, ry + 12, dimColor(dimId) | 0xFF000000);
+            String dimS = dimShort(dimId);
+            gg.drawString(this.font, Component.literal(dimS), rx + colDimTextX, ry + 4, 0xFFE0E0E0, false);
+            dimHits.add(new DimHit(dimId, rx + colDimX, ry + 2, colDimTextX - colDimX + this.font.width(dimS) + 2, 14));
+
+            // coordinate (left-aligned at a fixed x; ellipsised if a huge coordinate would overflow)
+            String pos = trim(m.pos.getX() + "," + m.pos.getY() + "," + m.pos.getZ(), colPosW);
+            int posX = rx + colPosX;
+            gg.drawString(this.font, Component.literal(pos), posX, ry + 4, 0xFFE0E0E0, false);
+            posHits.add(new PosHit(i, posX - 2, ry + 2, this.font.width(pos) + 4, 14));
+
+            // face direction (centered in its column)
+            Component face = faceShort(m.face);
+            int faceW = this.font.width(face);
+            gg.drawString(this.font, face, rx + colFaceX + (colFaceW - faceW) / 2, ry + 4, 0xFFE0E0E0, false);
+            faceHits.add(new FaceHit(i, rx + colFaceX - 2, ry + 1, colFaceW + 4, 14));
+
+            // action buttons (fixed positions)
+            int tbX = rx + colToggleX, pX = rx + colPriorityX, fbX = rx + colFilterX, dbX = rx + colDelX;
+            // role-tinted IN/OUT button (click to swap role)
+            int roleColor = m.role == Role.INPUT ? IN_C : OUT_C;
+            gg.fill(tbX, ry + 1, tbX + colToggleW, ry + 15, roleColor);
+            gg.fill(tbX + colToggleW - 1, ry + 1, tbX + colToggleW, ry + 15, 0x44000000);
+            String roleS = m.role == Role.INPUT ? "IN" : "OUT";
+            gg.drawString(this.font, Component.literal(roleS), tbX + 3, ry + 4, 0xFFFFFFFF, false);
+            addInline(gg, pX, ry + 1, colPriorityW, 14, "P" + m.priority, false);
+            addInline(gg, fbX, ry + 1, colFilterW, 14, Lang.t(Lang.UI_FILTER).getString(), hasFilter(m));
+            addDanger(gg, dbX, ry + 1, colDelW, 14, "×");
+            memberBtns.add(new MemberBtn(i, 0, fbX, ry + 1, colFilterW, 14));
+            memberBtns.add(new MemberBtn(i, 1, tbX, ry + 1, colToggleW, 14));
+            memberBtns.add(new MemberBtn(i, 2, dbX, ry + 1, colDelW, 14));
+            memberBtns.add(new MemberBtn(i, 3, pX, ry + 1, colPriorityW, 14));
+        }
+        // overlay details (default panel still visible) — non-replacing extensions draw here
+        if (ext != null) ext.drawDetails(detailContext(), gg, c);
+    }
+
+    // a faux button drawn with the bevel language (real input handled in mouseClicked)
+    private void addInline(GuiGraphics gg, int bx, int by, int bw, int bh, String label, boolean marked) {
+        gg.fill(bx, by, bx + bw, by + bh, P2PGuiTextures.FAUX_BTN);
+        gg.fill(bx, by, bx + bw, by + 1, HI);
+        gg.fill(bx, by, bx + 1, by + bh, HI);
+        gg.fill(bx, by + bh - 1, bx + bw, by + bh, SH);
+        gg.fill(bx + bw - 1, by, bx + bw, by + bh, SH);
+        gg.drawString(this.font, Component.literal(label), bx + (bw - this.font.width(label)) / 2, by + 4, marked ? P2PGuiTextures.MARK_GOLD : INK, false);
+    }
+
+    // ============================================================ input
+    @Override
+    public boolean mouseClicked(double mx, double my, int button) {
+        ChannelScreenExtension ext = extensionFor(findChannel(selectedChannel));
+        if (ext != null && ext.mouseClicked(detailContext(), mx, my, button)) return true;
+        if (super.mouseClicked(mx, my, button)) return true;
+        int ix = (int) mx, iy = (int) my;
+        if (netNameHitValid && iy >= topPos - 16 && iy <= topPos - 2 && ix >= netNameHitX && ix <= netNameHitX + netNameHitW) {
+            minecraft.setScreen(new NetworkScreen());
+            return true;
+        }
+        if (nameHitValid && ix >= nameHitX && ix <= nameHitX + nameHitW && iy >= nameHitY && iy <= nameHitY + nameHitH) {
+            Channel c = findChannel(selectedChannel);
+            if (c != null) minecraft.setScreen(new NameInputScreen(this, Lang.t(Lang.UI_RENAME), c.name == null ? "" : c.name, 0, c.id, null));
+            return true;
+        }
+        // Double-click a member's coordinate text → jump to that block: draw a see-through red frame in-world
+        // and close the GUI so the player can look at the highlighted block.
+        long now = System.currentTimeMillis();
+        for (PosHit ph : posHits) {
+            if (ix >= ph.x && ix <= ph.x + ph.w && iy >= ph.y && iy <= ph.y + ph.h) {
+                if (ph.index == lastDblIndex && now - lastDblTime < 350) {
+                    Channel c = findChannel(selectedChannel);
+                    if (c != null && ph.index < c.members.size()) {
+                        Member m = c.members.get(ph.index);
+                        ClientChannelCache.INSTANCE.addHighlight(m.pos);
+                        P2P.LOGGER.info("[p2p] jump-to-block highlight: {}", m.pos);
+                        minecraft.setScreen(null);
+                        return true;
+                    }
+                }
+                lastDblIndex = ph.index;
+                lastDblTime = now;
+                return true;
+            }
+        }
+        for (FaceHit fh : faceHits) {
+            if (ix >= fh.x && ix <= fh.x + fh.w && iy >= fh.y && iy <= fh.y + fh.h) {
+                Channel c = findChannel(selectedChannel);
+                if (c != null && fh.index < c.members.size()) cycleFace(c.members.get(fh.index));
+                return true;
+            }
+        }
+        for (MemberBtn mb : memberBtns) {
+            if (ix >= mb.x && ix <= mb.x + mb.w && iy >= mb.y && iy <= mb.y + mb.h) {
+                Channel c = findChannel(selectedChannel);
+                if (c == null || mb.index >= c.members.size()) return true;
+                Member m = c.members.get(mb.index);
+                if (mb.kind == 0) openFilter(m);
+                else if (mb.kind == 1) toggleRole(m);
+                else if (mb.kind == 2) removeMember(m);
+                else cyclePriority(m);
+                return true;
+            }
+        }
+        for (Hit h : leftRects) {
+            if (ix >= h.x && ix <= h.x + h.w && iy >= h.y && iy <= h.y + h.h) {
+                if (h.kind == 0) {
+                    if (openGroups.contains(h.id)) openGroups.remove(h.id); else openGroups.add(h.id);
+                    selectedGroup = h.id;      // group headers are selectable; 删除组 targets them first
+                } else {
+                    selectedChannel = h.id;
+                    selectedMember = -1;
+                    selectedGroup = -1;
+                }
+                saveUiState();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public boolean mouseScrolled(double mx, double my, double scrollX, double scrollY) {
+        ChannelScreenExtension ext = extensionFor(findChannel(selectedChannel));
+        if (ext != null && ext.mouseScrolled(detailContext(), mx, my, scrollX, scrollY)) return true;
+        int lx = leftPos + 4, lw = 140, listBottom = topPos + H - 26;
+        int rx = leftPos + 148, rw = W - 148 - 4;
+        if (mx >= lx && mx <= lx + lw && my >= topPos + 28 && my <= listBottom)
+            leftScroll = clamp(leftScroll - (int) scrollY * 16, 0, Math.max(0, leftContentH - (listBottom - (topPos + 28))));
+        else if (mx >= rx && mx <= rx + rw && my >= topPos + 88 && my <= listBottom)
+            memberScroll = clamp(memberScroll - (int) scrollY * 16, 0, Math.max(0, memberContentH - (listBottom - (topPos + 88 + 18))));
+        return true;
+    }
+
+    @Override
+    public boolean keyPressed(int key, int scan, int mods) {
+        if (key == InputConstants.KEY_ESCAPE) { commitRate(); commitSpeed(); minecraft.setScreen(null); return true; }
+        if (key == InputConstants.KEY_RETURN || key == InputConstants.KEY_NUMPADENTER) {
+            if (rateEdit.isFocused()) { commitRate(); rateEdit.setFocused(false); return true; }
+            if (speedEdit.isFocused()) { commitSpeed(); speedEdit.setFocused(false); return true; }
+        }
+        return super.keyPressed(key, scan, mods);
+    }
+
+    // ============================================================ actions
+    private int parseBox(EditBox b, int fallback) {
+        String s = b.getValue().trim();
+        if (s.isEmpty()) return fallback;
+        try { return Integer.parseInt(s); } catch (NumberFormatException e) { return fallback; }
+    }
+
+    private void commitRate() {
+        Channel c = findChannel(selectedChannel);
+        if (c == null) return;
+        int v = Math.max(1, Math.min(ChannelActionC2SPacket.RATE_MAX, parseBox(rateEdit, c.rate)));
+        if (v != c.rate) sendAction(ChannelActionC2SPacket.Action.SET_RATE, v);
+        if (!rateEdit.isFocused() && !rateEdit.getValue().equals(String.valueOf(c.rate))) rateEdit.setValue(String.valueOf(c.rate));
+    }
+
+    private void stepRate(int d) {
+        Channel c = findChannel(selectedChannel);
+        if (c == null) return;
+        sendAction(ChannelActionC2SPacket.Action.SET_RATE, Math.max(1, Math.min(ChannelActionC2SPacket.RATE_MAX, parseBox(rateEdit, c.rate) + d)));
+    }
+
+    private void commitSpeed() {
+        Channel c = findChannel(selectedChannel);
+        if (c == null) return;
+        int v = Math.max(1, Math.min(ChannelActionC2SPacket.RATE_MAX, parseBox(speedEdit, c.speed)));
+        if (v != c.speed) sendAction(ChannelActionC2SPacket.Action.SET_SPEED, v);
+        if (!speedEdit.isFocused() && !speedEdit.getValue().equals(String.valueOf(c.speed))) speedEdit.setValue(String.valueOf(c.speed));
+    }
+
+    private void stepSpeed(int d) {
+        Channel c = findChannel(selectedChannel);
+        if (c == null) return;
+        sendAction(ChannelActionC2SPacket.Action.SET_SPEED, Math.max(1, Math.min(ChannelActionC2SPacket.RATE_MAX, parseBox(speedEdit, c.speed) + d)));
+    }
+
+    private void sendAction(ChannelActionC2SPacket.Action action, int val) {
+        if (selectedChannel < 0) return;
+        ModMessages.sendToServer(new ChannelActionC2SPacket(selectedChannel, action, null, val, null, false, null, ""));
+    }
+
+    private void openGroupSelect() {
+        Channel c = findChannel(selectedChannel);
+        if (c == null) return;
+        minecraft.setScreen(new GroupSelectScreen(this, selectedChannel, c.groupId, groups));
+    }
+
+    private void cycleType() {
+        Channel c = findChannel(selectedChannel);
+        if (c == null) return;
+        List<Medium> vals = Mediums.all();
+        int idx = vals.indexOf(c.type);
+        Medium next = vals.get(Math.floorMod(idx + 1, vals.size()));
+        ModMessages.sendToServer(new ChannelActionC2SPacket(c.id, ChannelActionC2SPacket.Action.SET_TYPE, next.id, 0, null, false, null, ""));
+    }
+
+    private void pageNet(int dir) {
+        if (nets.isEmpty()) return;
+        netIndex = Math.max(0, Math.min(nets.size() - 1, netIndex + dir));
+        selectedChannel = -1;
+        selectedMember = -1;
+        selectedGroup = -1;
+        saveUiState();
+    }
+
+    private void openFilter(Member m) {
+        Channel c = findChannel(selectedChannel);
+        if (c == null) return;
+        minecraft.setScreen(new FilterEditor(this, c.id, c.type, m));
+    }
+
+    private void toggleRole(Member m) {
+        Channel c = findChannel(selectedChannel);
+        if (c == null) return;
+        int target = (m.role == Role.INPUT) ? Role.OUTPUT.ordinal() : Role.INPUT.ordinal();
+        ModMessages.sendToServer(new ChannelActionC2SPacket(c.id, ChannelActionC2SPacket.Action.SET_ROLE, null, target, m.key(), false, null, ""));
+    }
+
+    /** Send REMOVE_MEMBER to the server and drop the row locally for instant feedback. */
+    private void removeMember(Member m) {
+        Channel c = findChannel(selectedChannel);
+        if (c == null) return;
+        ModMessages.sendToServer(new ChannelActionC2SPacket(c.id, ChannelActionC2SPacket.Action.REMOVE_MEMBER, null, 0, m.key(), false, null, ""));
+        c.members.remove(m);
+        selectedMember = -1;
+    }
+
+    /** Faux bevel button with red text, used for destructive row actions. */
+    private void addDanger(GuiGraphics gg, int bx, int by, int bw, int bh, String label) {
+        gg.fill(bx, by, bx + bw, by + bh, P2PGuiTextures.FAUX_BTN);
+        gg.fill(bx, by, bx + bw, by + 1, HI);
+        gg.fill(bx, by, bx + 1, by + bh, HI);
+        gg.fill(bx, by + bh - 1, bx + bw, by + bh, SH);
+        gg.fill(bx + bw - 1, by, bx + bw, by + bh, SH);
+        gg.drawString(this.font, Component.literal(label), bx + (bw - this.font.width(label)) / 2, by + 4, P2PGuiTextures.DANGER, false);
+    }
+
+    // ============================================================ helpers
+    /** The per-medium detail-panel extension registered for this channel (null = vanilla layout). */
+    @Nullable
+    private static ChannelScreenExtension extensionFor(@Nullable Channel c) {
+        if (c == null || c.type == null) return null;
+        return ChannelScreenExtensions.get(c.type.id);
+    }
+
+    /** Fresh facade over the current panel geometry — rebuilt per callback so window resizes are honoured. */
+    private DetailContext detailContext() {
+        return new DetailContext(leftPos, topPos, W, H, leftPos + 148, W - 148 - 4,
+                this.font, this.minecraft, pkt -> ModMessages.sendToServer(pkt));
+    }
+
+    private Component groupLabel(int gid) {
+        if (gid < 0) return Lang.t(Lang.UI_GROUP_NONE);
+        for (Group g : groups) if (g.id == gid) return Component.literal(g.name);
+        return Lang.t(Lang.UI_GROUP_NONE);
+    }
+
+    private boolean hasFilter(Member m) { return (m.extractFilter != null) || (m.insertFilter != null); }
+
+    private boolean matchCh(Channel c, String q) {
+        if (q.isEmpty()) return true;
+        if (c.name != null && c.name.toLowerCase().contains(q)) return true;
+        if (String.valueOf(c.id).contains(q)) return true;
+        if (typeLabel(c.type).getString().contains(q) || c.type.id.toLowerCase().contains(q)) return true;
+        for (Member m : c.members)
+            if (m.dim.toString().toLowerCase().contains(q)
+                    || (m.pos.getX() + "," + m.pos.getY() + "," + m.pos.getZ()).contains(q)) return true;
+        return false;
+    }
+
+    private boolean matchGroup(Group g, String q) {
+        if (g.name.toLowerCase().contains(q)) return true;
+        for (Channel c : channelsOf(g)) if (matchCh(c, q)) return true;
+        return false;
+    }
+
+    private static int typeColor(Medium t) {
+        return t.argbColor;
+    }
+
+    private static Component typeLabel(Medium t) {
+        return t.displayName();
+    }
+
+    private static Component distLabel(Channel.Distribution d) {
+        return switch (d) {
+            case PRIORITY -> Lang.t(Lang.UI_DIST_PRIORITY);
+            case NEAREST -> Lang.t(Lang.UI_DIST_NEAREST);
+            case FARTHEST -> Lang.t(Lang.UI_DIST_FARTHEST);
+            case SPLIT_EVENLY -> Lang.t(Lang.UI_DIST_SPLIT);
+            default -> Lang.t(Lang.UI_DIST_ROUND);
+        };
+    }
+
+    private static Component redstoneLabel(Channel.RedstoneMode m) {
+        return switch (m) {
+            case HIGH -> Lang.t(Lang.UI_RED_HIGH);
+            case LOW -> Lang.t(Lang.UI_RED_LOW);
+            case NEVER -> Lang.t(Lang.UI_RED_NEVER);
+            default -> Lang.t(Lang.UI_RED_IGNORE);
+        };
+    }
+
+    /** Format a per-second rate for display: 1M / 100k / 2.5G; display-only, never changes the stored value. */
+    private static String formatPerSec(int rate, int speed) {
+        long perSec = (long) rate * 20 / Math.max(1, speed);
+        if (perSec >= 1_000_000_000L) return trimZero(perSec / 1_000_000_000.0) + "G";
+        if (perSec >= 1_000_000L) return trimZero(perSec / 1_000_000.0) + "M";
+        if (perSec >= 1_000L) return trimZero(perSec / 1_000.0) + "k";
+        return String.valueOf(perSec);
+    }
+
+    private static String trimZero(double v) {
+        if (v == Math.floor(v)) return String.valueOf((long) v);
+        String s = String.format("%.1f", v);
+        return s.endsWith(".0") ? s.substring(0, s.length() - 2) : s;
+    }
+
+    /** Cycle the endpoint's bound face to the next direction (UP/DOWN/NORTH/SOUTH/WEST/EAST). */
+    private void cycleFace(Member m) {
+        Channel c = findChannel(selectedChannel);
+        if (c == null) return;
+        Direction[] dirs = Direction.values();
+        Direction next = dirs[(m.face.get3DDataValue() + 1) % dirs.length];
+        ModMessages.sendToServer(new ChannelActionC2SPacket(c.id, ChannelActionC2SPacket.Action.SET_FACE,
+                null, next.get3DDataValue(), m.key(), false, null, ""));
+        int i = c.members.indexOf(m);
+        if (i >= 0) c.members.set(i, m.withFace(next));
+    }
+
+    /** Open a number prompt so the player can type any routing priority (higher = preferred first). */
+    private void cyclePriority(Member m) {
+        Channel c = findChannel(selectedChannel);
+        if (c == null) return;
+        minecraft.setScreen(new NameInputScreen(this, Lang.t(Lang.UI_SET_PRIORITY), String.valueOf(m.priority), 2, c.id, m.key()));
+    }
+
+    private static int dimColor(String dim) {
+        if (dim.contains("nether")) return 0x8a3423;
+        if (dim.contains("end")) return 0x5b4a7a;
+        if (!dim.startsWith("minecraft:")) return 0x2f6d7a;   // modded dimension
+        return 0x3f6d32;
+    }
+
+    /** Two-character dimension label that fits the endpoint row; the full id is available as a tooltip. */
+    private static String dimShort(String dim) {
+        if (dim.equals("minecraft:overworld")) return Lang.t(Lang.UI_DIM_OVERWORLD).getString();
+        if (dim.equals("minecraft:the_nether")) return Lang.t(Lang.UI_DIM_NETHER).getString();
+        if (dim.equals("minecraft:the_end")) return Lang.t(Lang.UI_DIM_END).getString();
+        int colon = dim.indexOf(':');
+        String ns = colon > 0 ? dim.substring(0, colon) : dim;
+        if (ns.equals("minecraft")) {
+            String path = colon > 0 ? dim.substring(colon + 1) : dim;
+            ns = path;
+        }
+        return ns.length() >= 2 ? ns.substring(0, 2).toUpperCase() : ns.toUpperCase();
+    }
+
+    private static Component faceShort(net.minecraft.core.Direction f) {
+        return switch (f) {
+            case UP -> Lang.t(Lang.UI_FACE_UP); case DOWN -> Lang.t(Lang.UI_FACE_DOWN); case NORTH -> Lang.t(Lang.UI_FACE_NORTH); case SOUTH -> Lang.t(Lang.UI_FACE_SOUTH); case EAST -> Lang.t(Lang.UI_FACE_EAST); case WEST -> Lang.t(Lang.UI_FACE_WEST);
+        };
+    }
+
+    private static int clamp(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
+
+    private String trim(String s, int maxPx) {
+        if (s == null) return "";
+        if (this.font.width(s) <= maxPx) return s;
+        while (this.font.width(s + "…") > maxPx && s.length() > 1) s = s.substring(0, s.length() - 1);
+        return s + "…";
+    }
+
+    private void inset(GuiGraphics gg, int x, int y, int w, int h) {
+        gg.fill(x, y, x + w, y + 1, SH);
+        gg.fill(x, y, x + 1, y + h, SH);
+        gg.fill(x, y + h - 1, x + w, y + h, HI);
+        gg.fill(x + w - 1, y, x + w, y + h, HI);
+    }
+
+    /** Medium tag: right-aligned plate that shrinks to the label width (capped), long names ellipsise. */
+    private void typeTag(GuiGraphics gg, int bx, int by, @Nullable Medium t) {
+        if (t == null) return;
+        Component label = typeLabel(t);
+        int textWidth = this.font.width(label);
+        int tagWidth = Math.min(textWidth + 8, 56);
+        int x = bx + 28 - tagWidth;
+        gg.fill(x, by, x + tagWidth, by + 11, typeColor(t));
+        gg.fill(x, by, x + tagWidth, by + 1, 0x55FFFFFF);
+        Component shown = textWidth + 8 > tagWidth ? Component.literal(trim(label.getString(), tagWidth - 8)) : label;
+        gg.drawString(this.font, shown, x + 4, by + 2, 0xFFFFFFFF, false);
+    }
+
+    private record LeftRow(int kind, int id, String label, Medium type, int color, boolean child) {}
+    private record Hit(int x, int y, int w, int h, int kind, int id) {}
+    private record MemberBtn(int index, int kind, int x, int y, int w, int h) {}
+    private record PosHit(int index, int x, int y, int w, int h) {}
+    private record DimHit(String dim, int x, int y, int w, int h) {}
+    private record FaceHit(int index, int x, int y, int w, int h) {}
+    private record BlockHit(int index, int x, int y, int w, int h, ItemStack icon) {}
+}
