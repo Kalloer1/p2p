@@ -231,12 +231,21 @@ public class ChannelManager extends SavedData {
         return g;
     }
 
-    /** Delete a group: remove it and detach every channel that belonged to it (groupId -> -1 = ungrouped). */
-    public void deleteGroup(int groupId) {
-        groups.remove(groupId);
+    /**
+     * Delete a group. 1.4.0 语义变更：删除组 = 连带删除组内全部频道（含端点绑定），
+     * 不再把频道"扩散"回无分组状态。级联复用 {@link #deleteChannel(int)} 的既有路径，
+     * 保证 ChannelDeletedEvent 事件派发与组内 channelIds 清理不漏。
+     *
+     * @return 实际删除的频道数量（组不存在返回 0），供聊天回显"已删除分组及其 N 个频道"。
+     */
+    public int deleteGroup(int groupId) {
+        if (groups.remove(groupId) == null) return 0;
+        List<Integer> doomed = new ArrayList<>();
         for (Channel c : channels.values())
-            if (c.groupId == groupId) c.groupId = -1;
+            if (c.groupId == groupId) doomed.add(c.id);
+        for (int id : doomed) deleteChannel(id);
         setDirty();
+        return doomed.size();
     }
 
     /**

@@ -185,5 +185,7 @@
   "p2p.msg.chunkload_no_perm": "Only creative players can use chunk loading (server admins can allow everyone in config)",
   "p2p.msg.chunkload_on": "Network \"%s\" chunk loading enabled: bound endpoints' chunks stay loaded while any member is online",
   "p2p.msg.chunkload_off": "Network \"%s\" chunk loading disabled",
-  "p2p.type.unknown": "Unknown medium"
+  "p2p.type.unknown": "Unknown medium",
+  "p2p.ui.channel_hint": "Ctrl=multi-select, Shift=range, Group & Delete act on selection",
+  "p2p.msg.group_deleted": "Deleted the group and its %d channel(s)"
 }

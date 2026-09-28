@@ -53,13 +53,13 @@ public final class ClientForgeEvents {
 
     private static VertexBuffer overlayVbo = null;
 
-    // 柔和色板（用户选定方案 A）：填充低饱和、描边同色系更亮一档。色相语义不变：IN 红、OUT 蓝、hover 黄。
+    // 柔和色板（用户选定方案 A）：填充低饱和、描边同色系更亮一档。色相语义：IN 红、OUT 蓝。
+    // 1.4.0：绑定模式的黄色 hover 预览高亮（HOVER_FILL/HOVER_LINE）已按要求完全移除；
+    // 已绑定端点的红/蓝面高亮与双击定位红框保留。
     private static final float[] INPUT_FILL = {0.898f, 0.451f, 0.451f};   // #E57373 珊瑚红
     private static final float[] INPUT_LINE = {1.000f, 0.620f, 0.620f};   // #FF9E9E
     private static final float[] OUTPUT_FILL = {0.392f, 0.710f, 0.965f};  // #64B5F6 天蓝
     private static final float[] OUTPUT_LINE = {0.620f, 0.850f, 1.000f};  // #9ED9FF
-    private static final float[] HOVER_FILL = {1.000f, 0.835f, 0.310f};   // #FFD54F 琥珀
-    private static final float[] HOVER_LINE = {1.000f, 0.930f, 0.550f};   // #FFED8C
     private static final float[] JUMP_FILL = {1.000f, 0.120f, 0.120f};
     private static final float[] JUMP_LINE = {1.000f, 0.400f, 0.400f};
 
@@ -119,7 +119,6 @@ public final class ClientForgeEvents {
                     BlockPos hoverPos = (hit instanceof BlockHitResult bhr) ? bhr.getBlockPos() : null;
                     Direction hoverFace = (hit instanceof BlockHitResult bhr) ? bhr.getDirection() : null;
 
-                    boolean hoverBound = false;
                     int rendered = 0;
                     for (Tag t : data.getList("channels", Tag.TAG_COMPOUND)) {
                         Channel c = Channel.deserializeNBT((CompoundTag) t, mc.level.registryAccess());
@@ -133,14 +132,12 @@ public final class ClientForgeEvents {
                             pushFace(builder, m.pos, m.face, fill, line, a, cam, mc);
                             rendered++;
                             if (hoverPos != null && m.pos.equals(hoverPos) && m.face == hoverFace) {
+                                // 仅提亮"已绑定的端点面"（红/蓝，保留）；未绑定的准星面不再画黄色预览框
                                 pushFace(builder, m.pos, m.face, fill, line, 0.85f, cam, mc);
-                                hoverBound = true;
                             }
                         }
                     }
-                    if (hoverPos != null && hoverFace != null && !hoverBound) {
-                        pushFace(builder, hoverPos, hoverFace, HOVER_FILL, HOVER_LINE, 0.6f, cam, mc);
-                    }
+                    // 1.4.0：原来这里会对未绑定的准星面 pushFace(HOVER_*) 画黄色预览框，已整体移除。
                     P2P.LOGGER.debug("[p2p] overlay built faces={} boundCid={} hover={}/{}", rendered, boundCid, hoverPos, hoverFace);
                 }
             }

@@ -108,7 +108,12 @@ public record ChannelActionC2SPacket(
             case CREATE -> {
                 Channel c = cm.createChannel(cm.getOrCreateNetwork(player), Mediums.resolve(createType));
                 if (name != null && !name.isEmpty()) c.name = name;
-                if (intVal >= 0) c.groupId = intVal;
+                // 与 SET_GROUP 同一套校验：组存在、同网络、有编辑权。否则新建频道可把
+                // groupId 指向任意组，级联删除（DELETE_GROUP）会连带删掉无权频道。
+                if (intVal >= 0) {
+                    Group g = cm.getGroup(intVal);
+                    if (g != null && g.networkId == c.networkId && cm.canEditGroup(player, g)) c.groupId = intVal;
+                }
             }
             case DELETE -> cm.deleteChannel(channelId);
             case SET_RATE -> {
@@ -150,7 +155,15 @@ public record ChannelActionC2SPacket(
             }
             case SET_TYPE -> cm.setChannelType(channelId, Mediums.resolve(createType));
             case CREATE_GROUP -> cm.createGroup(cm.getOrCreateNetwork(player), name == null ? "" : name);
-            case DELETE_GROUP -> cm.deleteGroup(intVal);
+            case DELETE_GROUP -> {
+                // 1.4.0：删除组级联删除组内频道（服务端语义，见 ChannelManager.deleteGroup），
+                // 不弹确认框，聊天栏回显删除规模。
+                int removed = cm.deleteGroup(intVal);
+                if (removed > 0)
+                    player.displayClientMessage(
+                            Lang.t(Lang.MSG_GROUP_DELETED, removed).withStyle(ChatFormatting.YELLOW), false);
+                P2P.LOGGER.info("[p2p] DELETE_GROUP: group={} cascadeDeletedChannels={}", intVal, removed);
+            }
             case SET_FILTER -> {
                 Channel c = cm.getChannel(channelId);
                 if (c != null) {

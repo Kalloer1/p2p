@@ -14,11 +14,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Simple list picker for assigning a channel to a group. Shows every group in the current network plus
+ * Simple list picker for assigning channel(s) to a group. Shows every group in the current network plus
  * a "(无分组)" option at the top. Selecting an entry sends SET_GROUP and returns to the parent screen.
  *
  * <p>1.2.0 skin: masked dialog + rounded white card, rows are flush iOS list rows (18px, separators
  * inset 8) and the destructive/confirm pair are text buttons.
+ *
+ * <p>1.4.0 批量化：调用方传入一组频道 id（多选）或单频道；选「（无分组）」= 对全部目标频道
+ * 发 SET_GROUP(-1)（即批量移出组）。逐频道复用既有 SET_GROUP 动作，不新增 payload。
  */
 public class GroupSelectScreen extends Screen {
 
@@ -27,7 +30,7 @@ public class GroupSelectScreen extends Screen {
     private static final int BTN_Y = H - 24;
 
     private final Screen parent;
-    private final int channelId;
+    private final List<Integer> channelIds;
     private final int currentGroupId;
     private final List<GroupRow> rows = new ArrayList<>();
     private final List<Hit> hits = new ArrayList<>();
@@ -37,10 +40,16 @@ public class GroupSelectScreen extends Screen {
     private Button okBtn;
     private int selected = -1;
 
+    /** 兼容单频道的旧入口。 */
     public GroupSelectScreen(Screen parent, int channelId, int currentGroupId, List<Group> groups) {
+        this(parent, List.of(channelId), currentGroupId, groups);
+    }
+
+    /** 批量入口：{@code channelIds} 为应用目标频道集合（客户端 ChannelScreen 多选结果）。 */
+    public GroupSelectScreen(Screen parent, List<Integer> channelIds, int currentGroupId, List<Group> groups) {
         super(Lang.t(Lang.UI_SELECT_GROUP));
         this.parent = parent;
-        this.channelId = channelId;
+        this.channelIds = channelIds;
         this.currentGroupId = currentGroupId;
         rows.add(new GroupRow(-1, Lang.t(Lang.UI_GROUP_NONE_OPTION).getString()));
         for (Group g : groups) rows.add(new GroupRow(g.id, g.name));
@@ -137,8 +146,10 @@ public class GroupSelectScreen extends Screen {
     private void confirm() {
         if (selected >= 0 && selected < rows.size()) {
             int gid = rows.get(selected).id;
-            if (gid != currentGroupId)
-                PacketDistributor.sendToServer(new ChannelActionC2SPacket(channelId,
+            // 1.4.0：逐频道发既有 SET_GROUP；gid=-1（无分组）即批量移出组。
+            // 不按 currentGroupId 过滤（多选时各频道原组可能不同），统一落位。
+            for (int cid : channelIds)
+                PacketDistributor.sendToServer(new ChannelActionC2SPacket(cid,
                         ChannelActionC2SPacket.Action.SET_GROUP, null, gid, null, false, null, ""));
         }
         minecraft.setScreen(parent);

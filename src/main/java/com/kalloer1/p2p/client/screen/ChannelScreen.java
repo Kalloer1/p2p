@@ -65,9 +65,10 @@ public class ChannelScreen extends Screen {
     private static final int LEFT_X = 8, LEFT_W = 140;
     private static final int RIGHT_X = 156, RIGHT_W = 244;
     private static final int FRAME_TOP = 44, FRAME_BOTTOM = 204;  // left list + right detail + addon frame
-    private static final int HEAD_TOP = 44, HEAD_H = 18;          // header card
-    private static final int RATE_TOP = 70, RATE_ROW = 18;        // rate + throttle card (70..106)
-    private static final int TABLE_TOP = 114, TABLE_HEAD = 16;    // endpoint card (114..204)
+    // 1.4.0：右栏顶部的频道标题卡整行删除（重命名入口改为左列表双击），释放的 26px 全部给端点表：
+    // 速率卡 44..80，端点表 88..204，端点视口 104..204（加高 26px，可多显示约 1.5 行）。
+    private static final int RATE_TOP = 44, RATE_ROW = 18;        // rate + throttle card (44..80)
+    private static final int TABLE_TOP = 88, TABLE_HEAD = 16;     // endpoint card (88..204)
     private static final int TOOLBAR_TOP = 212, TOOLBAR_H = P2PTheme.TOOLBAR_H;
     private static final int ROW_H = P2PTheme.ROW_H;
 
@@ -106,6 +107,20 @@ public class ChannelScreen extends Screen {
     /** 最后一次交互选中的端点 key（Ctrl+C 复制它的配置；多选时即“最后选中”）。 */
     private String selLastKey = null;
 
+    // ---- 频道多选（1.4.0 新功能，纯 client 端状态；复用端点选区的失效清理模式） ----
+    /**
+     * 左列表多选集合，元素是 channelId：单击=单选替换、Ctrl+单击=增减、Shift+单击=范围
+     * （锚点为最后单击的频道）、Ctrl+A=全选当前网络可见频道；Esc / 点击列表空白 / 快照
+     * reparse / 切网络时清空。多选后仅「分组」「删除频道」批量生效，其余 pill 仍作用于
+     * 最后选中的频道（{@link #selectedChannel}）。
+     */
+    private final Set<Integer> selectedChannels = new HashSet<>();
+    /** Shift 范围选择的锚点频道 id（= 最后单击的频道）；-1 = 尚未建立锚点。 */
+    private int chAnchorId = -1;
+    /** 左列表双击重命名检测：双击的第一击仍完成选中语义（参照端点行“单击=选中、双击=定位”）。 */
+    private int lastLeftDblId = -1;
+    private long lastLeftDblTime = 0;
+
     /**
      * 端点配置剪贴板。static：复制来源允许跨频道（频道 A 复制 → 频道 B 粘贴），且界面
      * 重开后仍保留；一次 Ctrl+V 的目标永远限定在当前频道内。过滤 tag 是完整序列化结果
@@ -133,8 +148,6 @@ public class ChannelScreen extends Screen {
     private long lastDblTime = 0;
     /** 当前频道里"已失效"（维度已加载但方块为空气）端点的实时数量，驱动清理按钮显隐。 */
     private int invalidCount = 0;
-    private int nameHitX, nameHitY, nameHitW, nameHitH;
-    private boolean nameHitValid = false;
     private int netNameHitX, netNameHitW;
     private boolean netNameHitValid = false;
 
@@ -201,7 +214,7 @@ public class ChannelScreen extends Screen {
                 b -> { if (selectedChannel >= 0) ModMessages.sendToServer(new SetBindChannelC2SPacket(selectedChannel)); },
                 leftPos + W / 2 - 30, toolbarY));
         deleteBtn = addRenderableWidget(textButton(Lang.t(Lang.UI_DELETE_CHANNEL), true,
-                b -> sendAction(ChannelActionC2SPacket.Action.DELETE, 0), leftPos + RIGHT_X + RIGHT_W - 66, toolbarY));
+                b -> deleteSelectedChannels(), leftPos + RIGHT_X + RIGHT_W - 66, toolbarY));
         deleteGrpBtn = addRenderableWidget(textButton(Lang.t(Lang.UI_DELETE_GROUP), true, b -> {
             int targetGrp = selectedGroup;
             if (targetGrp < 0) {
@@ -313,8 +326,9 @@ public class ChannelScreen extends Screen {
             for (Group g : groups) if (g.id == selectedGroup) { gOk = true; break; }
             if (!gOk) selectedGroup = -1;
         }
-        // 快照刷新后端点集可能已变（键含坐标/面），旧选区整体失效
+        // 快照刷新后端点集可能已变（键含坐标/面），旧选区整体失效；频道多选同批清理
         clearEndpointSelection();
+        clearChannelSelection();
         saveUiState();
         P2P.LOGGER.info("[p2p] ChannelScreen reparse: nets={} groups={} channels={} currentNet={} selected={}",
                 nets.size(), groups.size(), channels.size(), currentNetId, selectedChannel);
@@ -327,7 +341,7 @@ public class ChannelScreen extends Screen {
         // Draw our own panel directly; do not rely on Screen.renderBackground() dispatch,
         // because some modded environments (Sodium/ModernUI shader/screen mixins) skip or
         // override the standard background path, leaving the panel invisible.
-        drawPanel(gg);
+        drawPanel(gg, (int) mx, (int) my);
         super.render(gg, mx, my, pt);
         // commit rate/speed edits when the box loses focus (clicked elsewhere / switched field)
         if (rateFocusPrev && !rateEdit.isFocused()) commitRate();
@@ -367,7 +381,7 @@ public class ChannelScreen extends Screen {
         // no-op: drawPanel() already covers the screen with our own dim + panel
     }
 
-    private void drawPanel(GuiGraphics gg) {
+    private void drawPanel(GuiGraphics gg, int mx, int my) {
         gg.fill(0, 0, this.width, this.height, P2PTheme.BG_OVERLAY);
         P2PTheme.drawRoundRect(gg, leftPos, topPos, W, H, P2PTheme.R_DIALOG, P2PTheme.BG_GROUP);
         drawNav(gg);
@@ -375,8 +389,11 @@ public class ChannelScreen extends Screen {
         drawLeft(gg);
         drawRight(gg);
         fitConfigRow();
-        // 面板脚注：端点多选 + 复制/粘贴的常驻提示（工具条已满，放面板最底行）
-        P2PTheme.drawCentered(gg, this.font, Lang.t(Lang.UI_ENDPOINT_HINT),
+        // 面板脚注（常驻提示行）：悬停左列表时显示频道多选说明（1.4.0 新键），其余位置显示
+        // 端点多选 + 复制/粘贴提示——一行宽度只够一句，按悬停区域切换。
+        int lx = leftPos + LEFT_X, ft = topPos + FRAME_TOP, fb = topPos + FRAME_BOTTOM;
+        boolean overLeft = mx >= lx && mx <= lx + LEFT_W && my >= ft && my <= fb;
+        P2PTheme.drawCentered(gg, this.font, Lang.t(overLeft ? Lang.UI_CHANNEL_HINT : Lang.UI_ENDPOINT_HINT),
                 leftPos, topPos + H - 9, W, P2PTheme.TEXT_TERT);
     }
 
@@ -466,7 +483,8 @@ public class ChannelScreen extends Screen {
                 leftRects.add(new Hit(lx + 1, ry, LEFT_W - 2, ROW_H, 0, r.id));
                 gg.fill(lx + P2PTheme.PAD, ry + ROW_H - 1, lx + LEFT_W - P2PTheme.PAD, ry + ROW_H, P2PTheme.SEPARATOR);
             } else { // channel row — child rows are indented with a left tree guide line
-                boolean sel = r.id == selectedChannel;
+                // 1.4.0：多选集合中的行与"最后选中"行同用 CARD_SEL 底色（与端点行一致）
+                boolean sel = r.id == selectedChannel || selectedChannels.contains(r.id);
                 if (sel) P2PTheme.drawRoundRect(gg, lx + 1, ry, LEFT_W - 2, ROW_H, P2PTheme.R_CARD, P2PTheme.CARD_SEL);
                 if (r.child) gg.fill(lx + P2PTheme.PAD + 1, ry + 3, lx + P2PTheme.PAD + 3, ry + ROW_H - 3, P2PTheme.SEPARATOR);
                 int ind = r.child ? 24 : P2PTheme.PAD;
@@ -529,7 +547,6 @@ public class ChannelScreen extends Screen {
     private void drawRight(GuiGraphics gg) {
         int rx = leftPos + RIGHT_X;
         int cx = rxF();
-        nameHitValid = false;
         Channel c = findChannel(selectedChannel);
         boolean has = c != null;
         redstoneBtn.visible = distBtn.visible = rateDown.visible = rateUp.visible = speedDown.visible = speedUp.visible
@@ -578,7 +595,7 @@ public class ChannelScreen extends Screen {
         if (!speedEdit.isFocused() && !speedEdit.getValue().equals(String.valueOf(c.speed))) speedEdit.setValue(String.valueOf(c.speed));
 
         // per-medium extension: a medium may take over the whole right-hand detail panel
-        // (hides the generic rate/throttle controls and the header card, skips the default endpoint table)
+        // (hides the generic rate/throttle controls, skips the default endpoint table)
         ChannelScreenExtension ext = extensionFor(c);
         if (ext != null && ext.replacesDefaultPanel(c)) {
             rateDown.visible = rateUp.visible = speedDown.visible = speedUp.visible = maxRateBtn.visible = false;
@@ -588,7 +605,7 @@ public class ChannelScreen extends Screen {
             return;
         }
 
-        drawHeaderCard(gg, rx, cx, c);
+        // 1.4.0：频道标题卡已删除（重命名入口移至左列表双击），速率卡上移、端点表加高
         drawRateCard(gg, cx, c);
 
         // endpoint table (fixed-column layout so direction and IN/OUT line up regardless of coordinate width)
@@ -637,17 +654,6 @@ public class ChannelScreen extends Screen {
         gg.disableScissor();
         // overlay details (default panel still visible) — non-replacing extensions draw here
         if (ext != null) ext.drawDetails(detailContext(), gg, c);
-    }
-
-    /** Header card: {@code #id} in secondary ink, then the (click-to-rename) channel title. */
-    private void drawHeaderCard(GuiGraphics gg, int rx, int cx, Channel c) {
-        P2PTheme.card(gg, rx, topPos + HEAD_TOP, RIGHT_W, HEAD_H);
-        String id = "#" + c.id;
-        gg.drawString(this.font, Component.literal(id), cx, topPos + HEAD_TOP + 5, P2PTheme.TEXT_SECOND, false);
-        int nameX = cx + this.font.width(id) + 6;
-        String nm = trim(c.name == null ? "#" + c.id : c.name, rx + RIGHT_W - P2PTheme.PAD - nameX);
-        P2PTheme.drawStringBold(gg, this.font, Component.literal(nm), nameX, topPos + HEAD_TOP + 5, P2PTheme.TEXT_PRIMARY);
-        nameHitX = nameX; nameHitY = topPos + HEAD_TOP; nameHitW = this.font.width(nm) + 4; nameHitH = HEAD_H; nameHitValid = true;
     }
 
     /** Rate + throttle card: two 18px rows, each label / stepper / derived footnote. */
@@ -808,11 +814,7 @@ public class ChannelScreen extends Screen {
             minecraft.setScreen(new NetworkScreen());
             return true;
         }
-        if (nameHitValid && ix >= nameHitX && ix <= nameHitX + nameHitW && iy >= nameHitY && iy <= nameHitY + nameHitH) {
-            Channel c = findChannel(selectedChannel);
-            if (c != null) minecraft.setScreen(new NameInputScreen(this, Lang.t(Lang.UI_RENAME), c.name == null ? "" : c.name, 0, c.id, null));
-            return true;
-        }
+        // （1.4.0）标题卡已删除；频道重命名改为左列表双击，见下方 leftRects 处理
         // 双击端点行的物品图标 / 维度色条区 → 跳转到世界方块：画透视红框并关 GUI。
         // 单击该区不再被消费（落到下方整行选中逻辑）：单击=选中、双击=定位，两者共存。
         long now = System.currentTimeMillis();
@@ -875,14 +877,35 @@ public class ChannelScreen extends Screen {
                 if (h.kind == 0) {
                     if (openGroups.contains(h.id)) openGroups.remove(h.id); else openGroups.add(h.id);
                     selectedGroup = h.id;      // group headers are selectable; 删除组 targets them first
+                    // 组头行不进入频道选区（1.4.0：分组头不可被选入频道多选）
                 } else {
-                    selectedChannel = h.id;
+                    selectChannel(h.id);       // 单击=选中并看详情；Ctrl=增减；Shift=范围（锚点=最后单击）
                     selectedGroup = -1;
                     clearEndpointSelection();  // 换频道后旧频道的选区整体失效
+                    // 1.4.0：双击频道名行 = 打开重命名（第一击已在上面完成选中语义，
+                    // 与端点行"单击=选中、双击=定位"的共存模式一致）
+                    long nowL = System.currentTimeMillis();
+                    if (h.id == lastLeftDblId && nowL - lastLeftDblTime < 350) {
+                        lastLeftDblId = -1;
+                        Channel rc = findChannel(h.id);
+                        if (rc != null)
+                            minecraft.setScreen(new NameInputScreen(this, Lang.t(Lang.UI_RENAME),
+                                    rc.name == null ? "" : rc.name, 0, rc.id, null));
+                    } else {
+                        lastLeftDblId = h.id;
+                        lastLeftDblTime = nowL;
+                    }
                 }
                 saveUiState();
                 return true;
             }
+        }
+        // 1.4.0：左列表空白区（无行处）点击 = 清空频道选区（与 Esc / 快照 reparse 同一清理路径）
+        int llx = leftPos + LEFT_X, lTop = topPos + FRAME_TOP, lBottom = topPos + FRAME_BOTTOM;
+        if (ix >= llx && ix <= llx + LEFT_W && iy >= lTop && iy <= lBottom) {
+            clearChannelSelection();
+            saveUiState();
+            return true;
         }
         return false;
     }
@@ -904,8 +927,9 @@ public class ChannelScreen extends Screen {
     @Override
     public boolean keyPressed(int key, int scan, int mods) {
         if (key == InputConstants.KEY_ESCAPE) {
-            // Esc 先清空端点选区（spec：Esc=清空），没有选区才关闭界面
+            // Esc 先清空端点选区，再清空频道多选（spec：Esc=清空），都没有才关闭界面
             if (!selectedEndpoints.isEmpty()) { clearEndpointSelection(); return true; }
+            if (!selectedChannels.isEmpty()) { clearChannelSelection(); saveUiState(); return true; }
             commitRate(); commitSpeed(); minecraft.setScreen(null); return true;
         }
         if (key == InputConstants.KEY_RETURN || key == InputConstants.KEY_NUMPADENTER) {
@@ -918,7 +942,11 @@ public class ChannelScreen extends Screen {
         if (!typing && Screen.hasControlDown()) {
             if (key == InputConstants.KEY_C) { copyEndpointConfig(); return true; }
             if (key == InputConstants.KEY_V) { pasteEndpointConfig(); return true; }
-            if (key == InputConstants.KEY_A) { selectAllEndpoints(); return true; }
+            if (key == InputConstants.KEY_A) {
+                // Ctrl+A：端点选区非空时全选端点（1.3.0 语义），否则全选当前网络可见频道（1.4.0）
+                if (selectedEndpoints.isEmpty()) selectAllChannels(); else selectAllEndpoints();
+                return true;
+            }
         }
         return super.keyPressed(key, scan, mods);
     }
@@ -963,10 +991,16 @@ public class ChannelScreen extends Screen {
         ModMessages.sendToServer(new ChannelActionC2SPacket(selectedChannel, action, null, val, null, false, null, ""));
     }
 
+    /**
+     * 「分组」pill：多选时把所选组应用到全部选中频道（含「（无分组）」= 批量移出组），
+     * 单选时行为与 1.3.x 一致。逐频道复用既有 SET_GROUP 动作，不新增 payload。
+     */
     private void openGroupSelect() {
+        List<Integer> targets = batchChannelIds();
+        if (targets.isEmpty()) return;
         Channel c = findChannel(selectedChannel);
-        if (c == null) return;
-        minecraft.setScreen(new GroupSelectScreen(this, selectedChannel, c.groupId, groups));
+        // 勾选基准 = 最后选中频道的当前组
+        minecraft.setScreen(new GroupSelectScreen(this, targets, c == null ? -1 : c.groupId, groups));
     }
 
     private void cycleType() {
@@ -984,6 +1018,7 @@ public class ChannelScreen extends Screen {
         selectedChannel = -1;
         selectedGroup = -1;
         clearEndpointSelection();
+        clearChannelSelection();   // 换网络后频道多选同样失效
         saveUiState();
     }
 
@@ -1008,6 +1043,79 @@ public class ChannelScreen extends Screen {
         c.members.remove(m);
         selectedEndpoints.remove(m.key());
         if (m.key().equals(selLastKey)) selLastKey = null;
+    }
+
+    // ============================================================ channel selection (1.4.0)
+    /** 清空频道多选（Esc / 点击列表空白 / 快照 reparse / 切网络共用，复用端点选区的清理模式）。 */
+    private void clearChannelSelection() {
+        selectedChannels.clear();
+        chAnchorId = -1;
+        lastLeftDblId = -1;
+    }
+
+    /**
+     * 左列表频道行单击语义：普通单击=单选替换并查看详情；Ctrl+单击=增减多选；Shift+单击=
+     * 从锚点（最后单击的频道）到当前行的范围选择。组头行不可进入本方法。
+     */
+    private void selectChannel(int id) {
+        boolean ctrl = Screen.hasControlDown();
+        boolean shift = Screen.hasShiftDown();
+        if (shift && chAnchorId >= 0) {
+            // 范围以当前可见行序为准（搜索过滤后的 buildLeftRows 顺序）
+            List<Integer> visible = new ArrayList<>();
+            for (LeftRow r : buildLeftRows()) if (r.kind == 1) visible.add(r.id);
+            int a = visible.indexOf(chAnchorId), b = visible.indexOf(id);
+            if (a >= 0 && b >= 0) {
+                if (!ctrl) selectedChannels.clear();
+                for (int i = Math.min(a, b); i <= Math.max(a, b); i++) selectedChannels.add(visible.get(i));
+            } else {
+                selectedChannels.clear();
+                selectedChannels.add(id);
+            }
+        } else if (ctrl) {
+            if (!selectedChannels.remove(id)) selectedChannels.add(id);
+        } else {
+            selectedChannels.clear();
+            selectedChannels.add(id);
+        }
+        selectedChannel = id;   // 详情区 / 非批量 pill 始终跟随最后单击的频道
+        chAnchorId = id;
+    }
+
+    /** Ctrl+A（端点无选区时）：全选当前网络可见频道（搜索过滤后的全部频道行）。 */
+    private void selectAllChannels() {
+        for (LeftRow r : buildLeftRows()) if (r.kind == 1) selectedChannels.add(r.id);
+    }
+
+    /**
+     * 批量动作目标集合：多选集合里仍存在的频道；无多选时回退为最后单击的单个频道
+     * （单选行为与 1.3.x 完全一致）。
+     */
+    private List<Integer> batchChannelIds() {
+        List<Integer> out = new ArrayList<>();
+        if (!selectedChannels.isEmpty()) {
+            for (Channel c : channels) if (selectedChannels.contains(c.id)) out.add(c.id);
+        } else if (selectedChannel >= 0 && findChannel(selectedChannel) != null) {
+            out.add(selectedChannel);
+        }
+        return out;
+    }
+
+    /**
+     * 「删除频道」：对选中集生效（多选批量 / 单选单个）。逐频道复用既有 DELETE 动作，
+     * 与用户既有偏好一致不弹确认框；本地同步摘除被删频道以便即时反馈（服务端随后推送同步）。
+     */
+    private void deleteSelectedChannels() {
+        List<Integer> targets = batchChannelIds();
+        if (targets.isEmpty()) return;
+        for (int id : targets)
+            ModMessages.sendToServer(new ChannelActionC2SPacket(id, ChannelActionC2SPacket.Action.DELETE, null, 0, null, false, null, ""));
+        channels.removeIf(c -> targets.contains(c.id));
+        selectedChannels.clear();
+        chAnchorId = -1;
+        if (targets.contains(selectedChannel))
+            selectedChannel = channels.isEmpty() ? -1 : channels.get(0).id;
+        saveUiState();
     }
 
     // ============================================================ endpoint selection + copy/paste

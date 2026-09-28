@@ -57,6 +57,8 @@ public final class Lang {
     public static final String UI_PILL_CHUNKLOAD = "p2p.ui.pill.chunkload";
     /** 面板脚注：端点多选 + 复制/粘贴提示。 */
     public static final String UI_ENDPOINT_HINT = "p2p.ui.endpoint_hint";
+    /** 面板脚注（悬停左列表时）：频道多选 + 双击重命名说明（1.4.0）。 */
+    public static final String UI_CHANNEL_HINT = "p2p.ui.channel_hint";
 
     // ---- 端点行失效状态（1.3.1：面板实时解析世界现状，不做破坏自动移除） ----
     /** 已失效（维度已加载、坐标处方块为空气）行内标注。 */
@@ -198,6 +200,8 @@ public final class Lang {
     public static final String MSG_UNCHAIN_REMOVED = "p2p.msg.unchain_removed";
     /** 绑定点击回显的后缀：当前频道端点总数（1.3.1）。 */
     public static final String MSG_ENDPOINT_TOTAL = "p2p.msg.endpoint_total";
+    /** 删除组级联删除组内频道的聊天回显（1.4.0）。 */
+    public static final String MSG_GROUP_DELETED = "p2p.msg.group_deleted";
 
     // ---- bind-mode + packet chat messages ----
     public static final String MSG_BIND_ON = "p2p.msg.bind_on";
