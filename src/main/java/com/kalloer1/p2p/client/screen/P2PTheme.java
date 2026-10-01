@@ -140,11 +140,12 @@ public final class P2PTheme {
 
     // ==================== 文字 ====================
     /**
-     * 标题：单次绘制 + 原版阴影（spec v1.1 修订：汉字位图字体多次叠绘不合并、产生重影，
-     * 双向偏移模拟加粗的画法已废除，签名保持不变所以调用点零改动）。
+     * 标题：单次绘制、无阴影（spec v1.1 修订：汉字位图字体多次叠绘不合并、产生重影，
+     * 双向偏移模拟加粗的画法已废除；真机反馈 1px 阴影在密集中文字形上同样观感如重影，
+     * 故连阴影一并去掉，签名保持不变所以调用点零改动）。
      */
     public static void drawStringBold(GuiGraphics gg, Font font, Component text, int x, int y, int color) {
-        gg.drawString(font, text, x, y, color, true);
+        gg.drawString(font, text, x, y, color, false);
     }
 
     /** 标题居中加粗。 */

@@ -275,6 +275,10 @@ public class ChannelActionC2SPacket {
         }
         // Persist every mutation above
         cm.setDirty();
+        // 改动即回推快照：SET_TYPE / 红石 / 分配等动作此前只落库不推送，界面要重开才刷新。
+        // 动作都是低频点击，逐玩家全量快照开销可忽略（与 deleteSelectedChannels 的
+        // 「本地即时反馈 + 服务端随后推送」约定一致）。
+        cm.pushSync(player);
         if (membersTouched != null) {
             Channel touched = cm.getChannel(channelId);
             if (touched != null) {
