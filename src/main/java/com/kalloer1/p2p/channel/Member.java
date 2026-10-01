@@ -17,8 +17,9 @@ public class Member {
     public final Direction face;
     public final Role role;
     /** 绑定时记录的方块注册 id（服务端建端点时区块必定已加载，所以那一刻一定拿得到）。
-     *  老存档里的成员为 null。有了它，GUI 才能给跨维度 / 区块未加载的端点画出方块图标。 */
-    public final ResourceLocation blockId;
+     *  老存档里的成员为 null。有了它，GUI 才能给跨维度 / 区块未加载的端点画出方块图标。
+     *  非 final：服务端每秒懒回填老端点（端点所在区块被加载的那一刻补记）。 */
+    public ResourceLocation blockId;
     public Filter extractFilter;
     public Filter insertFilter;
     public int priority = 0;   // routing priority, higher value is preferred in PRIORITY distribution

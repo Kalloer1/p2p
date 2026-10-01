@@ -1,7 +1,8 @@
 package com.kalloer1.p2p.client.screen;
 
 import com.kalloer1.p2p.Lang;
-import com.kalloer1.p2p.channel.ChannelType;
+import com.kalloer1.p2p.medium.Medium;
+import com.kalloer1.p2p.medium.Mediums;
 import com.kalloer1.p2p.channel.Filter;
 import com.kalloer1.p2p.channel.Member;
 import com.kalloer1.p2p.channel.Role;
@@ -92,7 +93,7 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
 
     private final Screen parent;
     private final int channelId;
-    private final ChannelType chType;
+    private final Medium chType;
     private final Member member;
     private final boolean extract;
 
@@ -114,7 +115,7 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     private P2PFlatButton btnItem, btnTag, btnNbt;   // 顶部三个标签页
     private P2PFlatButton modeBtn, nbtBtn, addTagBtn; // 各页控件（按页显隐）
 
-    public FilterEditor(Screen parent, int channelId, ChannelType type, Member member) {
+    public FilterEditor(Screen parent, int channelId, Medium type, Member member) {
         super(new FilterMenu(Minecraft.getInstance().player.getInventory(), type),
                 Minecraft.getInstance().player.getInventory(),
                 Lang.t(Lang.UI_FILTER_TITLE));
@@ -140,7 +141,7 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         }
     }
 
-    public ChannelType getType() { return chType; }
+    public Medium getType() { return chType; }
 
     /** Screen-space rectangle of the marker grid — JEI uses it as the ghost-drop target. */
     public Rect2i getMarkerGridArea() {
@@ -153,14 +154,14 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     /** Called by the JEI ghost handler and by clicking an inventory slot. */
     public void addMarker(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return;
-        if (chType == ChannelType.ITEM) {
+        if (chType == Mediums.ITEM) {
             if (itemTpl.size() >= GRID_COLS * GRID_ROWS) return;
             for (ItemStack s : itemTpl) if (ItemStack.isSameItem(s, stack)) return; // no duplicates
             ItemStack copy = stack.copy();
             copy.setCount(1);
             itemTpl.add(copy);
             syncGhost();
-        } else if (chType == ChannelType.FLUID) {
+        } else if (chType == Mediums.FLUID) {
             // 流体频道里丢进来的物品按容器处理：能倒出流体就当作流体模板
             addFluidMarker(FluidUtil.getFluidContained(stack).orElse(FluidStack.EMPTY));
         }
@@ -182,9 +183,9 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     private void syncGhost() {
         for (int i = 0; i < GRID_COLS * GRID_ROWS; i++) {
             ItemStack show = ItemStack.EMPTY;
-            if (chType == ChannelType.ITEM && i < itemTpl.size()) {
+            if (chType == Mediums.ITEM && i < itemTpl.size()) {
                 show = itemTpl.get(i);
-            } else if (chType == ChannelType.FLUID && i < fluidTpl.size()) {
+            } else if (chType == Mediums.FLUID && i < fluidTpl.size()) {
                 ItemStack bucket = FluidUtil.getFilledBucket(fluidTpl.get(i));
                 if (!bucket.isEmpty()) show = bucket;
             }
@@ -207,11 +208,11 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         btnItem = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_TAB_ITEM), b -> setPage(Page.ITEM)).bounds(x + 4, y + ROW_TAB, 54, 16)));
         btnTag  = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_TAB_TAG), b -> setPage(Page.TAG)).bounds(x + 60, y + ROW_TAB, 54, 16)));
         btnNbt  = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_TAB_NBT), b -> setPage(Page.NBT)).bounds(x + 116, y + ROW_TAB, 54, 16)));
-        btnItem.setTooltip(Tooltip.create(Lang.t(chType == ChannelType.FLUID ? Lang.UI_FLUID_HINT : Lang.UI_ITEM_HINT)));
+        btnItem.setTooltip(Tooltip.create(Lang.t(chType == Mediums.FLUID ? Lang.UI_FLUID_HINT : Lang.UI_ITEM_HINT)));
         btnTag.setTooltip(Tooltip.create(Lang.t(Lang.UI_TAG_TIP)));
         btnNbt.setTooltip(Tooltip.create(Lang.t(Lang.UI_NBT_REGEX_HINT)));
 
-        if (chType == ChannelType.ITEM) {
+        if (chType == Mediums.ITEM) {
             // whitelist/blacklist toggle (governs items AND tags) — shown on ITEM and TAG pages
             modeBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_MODE, modeLabel()), b -> {
                 mode = (mode == Filter.Mode.WHITELIST ? Filter.Mode.BLACKLIST : Filter.Mode.WHITELIST);
@@ -259,7 +260,7 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         if (nbtEdit != null && page != Page.NBT) nbtEdit.focused = false;
         if (page != Page.TAG) tagHits.clear();               // stale rows must not eat clicks on other pages
         // deactivate every slot off the ITEM page so the grid/inventory never renders or captures clicks
-        setSlotsActive(itemPage && chType != ChannelType.ENERGY, itemPage);
+        setSlotsActive(itemPage && chType != Mediums.ENERGY, itemPage);
         // 选中态由按钮自身渲染（蓝底 + 下划线），不再用 "▶ " 前缀
         btnItem.setSelected(page == Page.ITEM);
         btnTag.setSelected(page == Page.TAG);
@@ -287,8 +288,8 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     private void finish() {
         if (nbtEdit != null) nbtRegex = nbtEdit.getValue().trim();
         Filter f;
-        if (chType == ChannelType.ENERGY) f = Filter.energyPass();
-        else if (chType == ChannelType.ITEM) f = Filter.itemFilter(mode, matchNBT, itemTpl, itemTags, nbtRegex);
+        if (chType == Mediums.ENERGY) f = Filter.energyPass();
+        else if (chType == Mediums.ITEM) f = Filter.itemFilter(mode, matchNBT, itemTpl, itemTags, nbtRegex);
         else f = Filter.fluidFilter(mode, fluidTpl);
         CompoundTag tag = f.serializeNBT();
         ModMessages.INSTANCE.sendToServer(new ChannelActionC2SPacket(channelId,
@@ -346,7 +347,7 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
                 itemPage ? 0xFF404040 : P2PGuiTextures.TITLE, false);
         // the player inventory only exists on the ITEM page — do not leave an orphan "物品栏" label behind
         if (itemPage) gg.drawString(this.font, this.playerInventoryTitle, this.inventoryLabelX, this.inventoryLabelY, 0xFF404040, false);
-        if (chType == ChannelType.ENERGY && itemPage) {
+        if (chType == Mediums.ENERGY && itemPage) {
             gg.fill(GRID_X, GRID_Y, GRID_X + GRID_COLS * SLOT, GRID_Y + GRID_ROWS * SLOT, 0xC0262A30);
             gg.drawString(this.font, Lang.t(Lang.UI_ENERGY_NOTE), GRID_X + 4, GRID_Y + 22, 0xFFC0C6CC, false);
         }
@@ -355,7 +356,7 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
 
     /** TAG page: a scrollable vertical tag list (many rows) + the add box lives in the strip. */
     private void drawTagPage(GuiGraphics gg) {
-        if (chType != ChannelType.ITEM) { drawTypeOnlyNote(gg); return; }
+        if (chType != Mediums.ITEM) { drawTypeOnlyNote(gg); return; }
         int x0 = leftPos + TAG_X, y0 = topPos + TAG_Y;
         int listH = TAG_LIST_H;
         int visible = listH / TAG_ROW_H;
@@ -390,7 +391,7 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
 
     /** NBT page: the large multi-line editor. The strict-NBT toggle lives in the strip. */
     private void drawNbtPage(GuiGraphics gg) {
-        if (chType != ChannelType.ITEM) { drawTypeOnlyNote(gg); return; }
+        if (chType != Mediums.ITEM) { drawTypeOnlyNote(gg); return; }
         if (nbtEdit != null) nbtEdit.render(gg);   // 正则示例见 NBT 页签 tooltip，不再常驻一行提示
     }
 
@@ -400,14 +401,14 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
 
     @Override
     public boolean mouseScrolled(double mx, double my, double delta) {
-        if (chType == ChannelType.ITEM && page == Page.TAG
+        if (chType == Mediums.ITEM && page == Page.TAG
                 && mx >= leftPos && mx <= leftPos + imageWidth && my >= topPos + TAG_Y && my <= topPos + TAG_Y + TAG_LIST_H) {
             int visible = TAG_LIST_H / TAG_ROW_H;
             int maxScroll = Math.max(0, itemTags.size() - visible);
             tagScroll = Math.max(0, Math.min(maxScroll, tagScroll - (int) Math.signum(delta)));
             return true;
         }
-        if (chType == ChannelType.ITEM && page == Page.NBT && nbtEdit != null && nbtEdit.isOver(mx, my)) {
+        if (chType == Mediums.ITEM && page == Page.NBT && nbtEdit != null && nbtEdit.isOver(mx, my)) {
             nbtEdit.scrollBy(-(int) Math.signum(delta));
             return true;
         }
@@ -484,8 +485,8 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         if (page != Page.ITEM) return;   // off the ITEM page the grid is inert
         if (slot.container == this.menu.ghost) {
             int idx = slot.getSlotIndex();
-            if (chType == ChannelType.ITEM && idx < itemTpl.size()) { itemTpl.remove(idx); syncGhost(); }
-            else if (chType == ChannelType.FLUID && idx < fluidTpl.size()) { fluidTpl.remove(idx); syncGhost(); }
+            if (chType == Mediums.ITEM && idx < itemTpl.size()) { itemTpl.remove(idx); syncGhost(); }
+            else if (chType == Mediums.FLUID && idx < fluidTpl.size()) { fluidTpl.remove(idx); syncGhost(); }
             return;
         }
         addMarker(slot.getItem());
@@ -692,12 +693,12 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     public static class FilterMenu extends AbstractContainerMenu {
         public final SimpleContainer ghost = new SimpleContainer(GRID_COLS * GRID_ROWS);
 
-        public FilterMenu(Inventory inv, ChannelType type) {
+        public FilterMenu(Inventory inv, Medium type) {
             super(null, 0);   // no MenuType: never registered, never synchronised
             for (int i = 0; i < GRID_COLS * GRID_ROWS; i++) {
                 int col = i % GRID_COLS, row = i / GRID_COLS;
                 addSlot(new ReadOnlySlot(ghost, i, GRID_X + col * SLOT, GRID_Y + row * SLOT,
-                        type != ChannelType.ENERGY));
+                        type != Mediums.ENERGY));
             }
             for (int row = 0; row < 3; row++)
                 for (int col = 0; col < 9; col++)

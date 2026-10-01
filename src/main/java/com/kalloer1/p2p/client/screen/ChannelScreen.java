@@ -3,13 +3,14 @@ package com.kalloer1.p2p.client.screen;
 import com.kalloer1.p2p.Lang;
 import com.kalloer1.p2p.P2P;
 import com.kalloer1.p2p.channel.Channel;
-import com.kalloer1.p2p.channel.ChannelType;
 import com.kalloer1.p2p.channel.Group;
 import com.kalloer1.p2p.channel.Member;
 import com.kalloer1.p2p.channel.Network;
 import com.kalloer1.p2p.channel.Role;
 import com.kalloer1.p2p.client.ClientChannelCache;
 import com.kalloer1.p2p.client.screen.P2PGuiTextures;
+import com.kalloer1.p2p.medium.Medium;
+import com.kalloer1.p2p.medium.Mediums;
 import com.kalloer1.p2p.network.ChannelActionC2SPacket;
 import com.kalloer1.p2p.network.ModMessages;
 import com.kalloer1.p2p.network.RequestChannelsC2SPacket;
@@ -25,6 +26,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.nbt.ListTag;
@@ -32,6 +34,7 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -74,7 +77,7 @@ public class ChannelScreen extends Screen {
 
     private final Set<Integer> openGroups = new HashSet<>();
     private EditBox searchBox;
-    private P2PFlatButton redstoneBtn, distBtn, rateDown, rateUp, speedDown, speedUp, groupBtn, bindBtn, deleteBtn, cleanBtn, createCh, createGrp, deleteGrpBtn, prevNet, nextNet, typeBtn, maxRateBtn;
+    private P2PFlatButton redstoneBtn, distBtn, rateDown, rateUp, speedDown, speedUp, groupBtn, bindBtn, deleteBtn, cleanBtn, createCh, createGrp, deleteGrpBtn, prevNet, nextNet, typeBtn, maxRateBtn, chunkLoadBtn;
     private EditBox rateEdit, speedEdit;
     private boolean rateFocusPrev = false, speedFocusPrev = false;
 
@@ -115,11 +118,12 @@ public class ChannelScreen extends Screen {
 
         int rx = leftPos + 148, rw = W - 148 - 4;
         int btnGap = 4;
-        int btnW = (rw - 3 * btnGap) / 4;              // row: 红石/分配/分组/清理空气 — four unified buttons
+        int btnW = (rw - 4 * btnGap) / 5;              // row: 红石/分配/分组/清理空气/区块加载 — five unified buttons
         redstoneBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_REDSTONE, redstoneLabel(Channel.RedstoneMode.ALWAYS)), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_REDSTONE, 0)).bounds(rx, topPos + 30, btnW, 18)));
         distBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DISTRIBUTION, distLabel(Channel.Distribution.ROUND_ROBIN)), b -> sendAction(ChannelActionC2SPacket.Action.CYCLE_DISTRIBUTION, 0)).bounds(rx + btnW + btnGap, topPos + 30, btnW, 18)));
         groupBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_GROUP, groupLabel(-1)), b -> openGroupSelect()).bounds(rx + 2 * (btnW + btnGap), topPos + 30, btnW, 18)));
         cleanBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_CLEAN_AIR), b -> sendAction(ChannelActionC2SPacket.Action.CLEAN_AIR, 0)).bounds(rx + 3 * (btnW + btnGap), topPos + 30, btnW, 18)));
+        chunkLoadBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_CHUNKLOAD_OFF), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_CHUNKLOAD, 0)).bounds(rx + 4 * (btnW + btnGap), topPos + 30, btnW, 18)));
 
         // rate: editable value + fine step + unit
         rateEdit = new EditBox(this.font, rx + 24, topPos + 48, 46, 14, Component.literal(""));
@@ -238,12 +242,14 @@ public class ChannelScreen extends Screen {
                 break;
             }
         }
-        // block icon tooltip: shows the block name at this endpoint's position
+        // block icon tooltip: shows the block name at this endpoint's position.
+        // 名称取自 ItemStack 显示名（JEI 同款）而不是 Block.getName()——后者的翻译键不含参数，
+        // 精妙存储这类「%s箱子」模板名会渲染成字面的 "%s钻石箱子"。
         for (BlockHit b : blockHits) {
             if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
                 gg.renderTooltip(this.font, Component.empty()
                         .append(Lang.t(Lang.HUD_BLOCK))
-                        .append(b.block.getName()), mx, my);
+                        .append(b.icon.getHoverName()), mx, my);
                 break;
             }
         }
@@ -395,10 +401,16 @@ public class ChannelScreen extends Screen {
         distBtn.setMessage(Lang.t(Lang.UI_DISTRIBUTION, distLabel(c.distribution)));
         groupBtn.setMessage(Lang.t(Lang.UI_GROUP, groupLabel(c.groupId)));
         typeBtn.setMessage(Lang.t(Lang.UI_MEDIUM, typeLabel(c.type)));
+        // chunk loading is a network-level switch shown next to the channel-level buttons
+        Network net = null;
+        for (Network nn : nets) if (nn.id == c.networkId) { net = nn; break; }
+        boolean netLoad = net != null && net.chunkLoad;
+        chunkLoadBtn.setMessage(Lang.t(netLoad ? Lang.UI_CHUNKLOAD_ON : Lang.UI_CHUNKLOAD_OFF));
+        chunkLoadBtn.setSelected(netLoad);
         // rate / speed editable values (refresh the box text only when not actively typing)
         if (!rateEdit.isFocused() && !rateEdit.getValue().equals(String.valueOf(c.rate))) rateEdit.setValue(String.valueOf(c.rate));
         if (!speedEdit.isFocused() && !speedEdit.getValue().equals(String.valueOf(c.speed))) speedEdit.setValue(String.valueOf(c.speed));
-        String unitShort = c.type == ChannelType.ITEM ? Lang.t(Lang.UI_UNIT_ITEM).getString() : c.type == ChannelType.FLUID ? Lang.t(Lang.UI_UNIT_MB).getString() : Lang.t(Lang.UI_UNIT_FE).getString();
+        String unitShort = c.type == Mediums.ITEM ? Lang.t(Lang.UI_UNIT_ITEM).getString() : c.type == Mediums.FLUID ? Lang.t(Lang.UI_UNIT_MB).getString() : c.type == Mediums.ENERGY ? Lang.t(Lang.UI_UNIT_FE).getString() : c.type.displayName().getString();
         gg.drawString(this.font, Lang.t(Lang.UI_RATE), rx, y + 50, INK, false);
         gg.drawString(this.font, Component.literal(unitShort + "≈" + formatPerSec(c.rate, c.speed) + "/s"), rx + 150, y + 58, INK_DIM, false);
         gg.drawString(this.font, Lang.t(Lang.UI_THROTTLE), rx, y + 68, INK, false);
@@ -456,22 +468,27 @@ public class ChannelScreen extends Screen {
             gg.fill(rx + 2, ry + rowH - 1, rx + rw - 2, ry + rowH, P2PGuiTextures.SEP);
 
             // 方块图标：坐标节点旁显示该位置方块，方便辨认。
-            // 同维度且区块已加载时优先实时取（pick-stack 能还原模组方块的变体/染色）；
+            // 同维度且区块已加载时优先实时取（pick-stack + 方块实体 NBT 能还原模组方块的变体/染色，
+            // 如精妙存储「橡木钻石箱子」的木材类型——JEI 对物品名的显示也以 ItemStack 为准）；
             // 否则退回绑定时记录的 Member.blockId——这样跨维度 / 区块未加载的端点也有图标。
             ItemStack icon = ItemStack.EMPTY;
-            Block iconBlock = null;
             if (this.minecraft.level != null && this.minecraft.level.dimension().location().equals(m.dim)) {
                 BlockState st = this.minecraft.level.getBlockState(m.pos);
                 Block blk = st.getBlock();
                 if (blk != Blocks.AIR && blk.asItem() != Items.AIR) {
-                    // Use the state-aware pick-stack so modded blocks (e.g. Sophisticated Storage barrels)
-                    // render the correct variant/tint instead of the default block item.
                     ItemStack pick = blk.getCloneItemStack(st,
                             new BlockHitResult(Vec3.atCenterOf(m.pos), m.face, m.pos, false),
                             this.minecraft.level, m.pos, this.minecraft.player);
                     if (pick.isEmpty()) pick = new ItemStack(blk.asItem());
+                    // 把方块实体的 NBT 挂到 pick-stack 上（vanilla BlockItem 同款 "BlockEntityTag"），
+                    // 模组物品（精妙存储等）读它还原木材/等级变体，图标与名称才会和世界里的实际方块一致。
+                    BlockEntity be = this.minecraft.level.getBlockEntity(m.pos);
+                    if (be != null) {
+                        CompoundTag beTag = be.saveWithFullMetadata();
+                        beTag.remove("id");
+                        BlockItem.setBlockEntityData(pick, be.getType(), beTag);
+                    }
                     icon = pick;
-                    iconBlock = blk;
                 }
             }
             if (icon.isEmpty() && m.blockId != null) {
@@ -479,12 +496,11 @@ public class ChannelScreen extends Screen {
                 Block blk = BuiltInRegistries.BLOCK.get(m.blockId);
                 if (blk != Blocks.AIR && blk.asItem() != Items.AIR) {
                     icon = new ItemStack(blk.asItem());
-                    iconBlock = blk;
                 }
             }
             if (!icon.isEmpty()) {
                 gg.renderItem(icon, rx + colIconX, ry + 0);
-                blockHits.add(new BlockHit(i, rx + colIconX, ry, 16, 16, iconBlock));
+                blockHits.add(new BlockHit(i, rx + colIconX, ry, 16, 16, icon));
             }
 
             // dimension: colour pill + short label (hover shows the full dimension id)
@@ -674,9 +690,10 @@ public class ChannelScreen extends Screen {
     private void cycleType() {
         Channel c = findChannel(selectedChannel);
         if (c == null) return;
-        ChannelType[] vals = ChannelType.values();
-        ChannelType next = vals[(c.type.ordinal() + 1) % vals.length];
-        ModMessages.INSTANCE.sendToServer(new ChannelActionC2SPacket(c.id, ChannelActionC2SPacket.Action.SET_TYPE, next.name(), 0, null, false, null, ""));
+        List<Medium> vals = Mediums.all();
+        int idx = vals.indexOf(c.type);
+        Medium next = vals.get(Math.floorMod(idx + 1, vals.size()));
+        ModMessages.INSTANCE.sendToServer(new ChannelActionC2SPacket(c.id, ChannelActionC2SPacket.Action.SET_TYPE, next.id, 0, null, false, null, ""));
     }
 
     private void pageNet(int dir) {
@@ -733,7 +750,7 @@ public class ChannelScreen extends Screen {
         if (q.isEmpty()) return true;
         if (c.name != null && c.name.toLowerCase().contains(q)) return true;
         if (String.valueOf(c.id).contains(q)) return true;
-        if (typeLabel(c.type).getString().contains(q) || c.type.name().toLowerCase().contains(q)) return true;
+        if (typeLabel(c.type).getString().contains(q) || c.type.id.toLowerCase().contains(q)) return true;
         for (Member m : c.members)
             if (m.dim.toString().toLowerCase().contains(q)
                     || (m.pos.getX() + "," + m.pos.getY() + "," + m.pos.getZ()).contains(q)) return true;
@@ -746,12 +763,12 @@ public class ChannelScreen extends Screen {
         return false;
     }
 
-    private static int typeColor(ChannelType t) {
-        return MediumRegistry.colorOf(t);
+    private static int typeColor(Medium t) {
+        return t.argbColor;
     }
 
-    private static Component typeLabel(ChannelType t) {
-        return MediumRegistry.nameOf(t);
+    private static Component typeLabel(Medium t) {
+        return t.displayName();
     }
 
     private static Component distLabel(Channel.Distribution d) {
@@ -850,18 +867,18 @@ public class ChannelScreen extends Screen {
         gg.fill(x + w - 1, y, x + w, y + h, HI);
     }
 
-    private void typeTag(GuiGraphics gg, int bx, int by, ChannelType t) {
+    private void typeTag(GuiGraphics gg, int bx, int by, Medium t) {
         int col = typeColor(t);
         gg.fill(bx, by, bx + 28, by + 11, col);
         gg.fill(bx, by, bx + 28, by + 1, 0x55ffffff & 0xFFFFFFFF);
         gg.drawString(this.font, typeLabel(t), bx + 4, by + 2, 0xFFFFFFFF);
     }
 
-    private record LeftRow(int kind, int id, String label, ChannelType type, int color, boolean child) {}
+    private record LeftRow(int kind, int id, String label, Medium type, int color, boolean child) {}
     private record Hit(int x, int y, int w, int h, int kind, int id) {}
     private record MemberBtn(int index, int kind, int x, int y, int w, int h) {}
     private record PosHit(int index, int x, int y, int w, int h) {}
     private record DimHit(String dim, int x, int y, int w, int h) {}
     private record FaceHit(int index, int x, int y, int w, int h) {}
-    private record BlockHit(int index, int x, int y, int w, int h, Block block) {}
+    private record BlockHit(int index, int x, int y, int w, int h, ItemStack icon) {}
 }

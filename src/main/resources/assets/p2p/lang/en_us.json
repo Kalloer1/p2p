@@ -2,7 +2,6 @@
   "key.p2p.open": "Open P2P",
   "key.p2p.bindmode": "Bind Mode",
   "key.categories.p2p": "P2P",
-
   "p2p.ui.title": "P2P Channels",
   "p2p.ui.search": "Search",
   "p2p.ui.redstone": "Redstone: %s",
@@ -31,41 +30,33 @@
   "p2p.ui.filter": "Filter",
   "p2p.ui.group_none": "None",
   "p2p.ui.no_match": "No matching channel",
-
   "p2p.ui.type.item": "Item",
   "p2p.ui.type.fluid": "Fluid",
   "p2p.ui.type.energy": "Energy",
-
   "p2p.ui.dist.priority": "Priority",
   "p2p.ui.dist.nearest": "Nearest",
   "p2p.ui.dist.farthest": "Farthest",
   "p2p.ui.dist.split": "Split",
   "p2p.ui.dist.round": "Round-robin",
-
   "p2p.ui.redstone.high": "High",
   "p2p.ui.redstone.low": "Low",
   "p2p.ui.redstone.never": "Disabled",
   "p2p.ui.redstone.ignore": "Ignore",
-
   "p2p.ui.face.up": "Up",
   "p2p.ui.face.down": "Down",
   "p2p.ui.face.north": "N",
   "p2p.ui.face.south": "S",
   "p2p.ui.face.east": "E",
   "p2p.ui.face.west": "W",
-
   "p2p.ui.dim.overworld": "OW",
   "p2p.ui.dim.nether": "NE",
   "p2p.ui.dim.end": "EN",
-
   "p2p.ui.unit.item": "items",
   "p2p.ui.unit.mb": "mB",
   "p2p.ui.unit.fe": "FE",
-
   "p2p.ui.role.owner": "Owner",
   "p2p.ui.role.admin": "Admin",
   "p2p.ui.role.shared": "Shared",
-
   "p2p.ui.filter.title": "Filter Editor",
   "p2p.ui.cancel": "Cancel",
   "p2p.ui.done": "Done",
@@ -93,33 +84,26 @@
   "p2p.ui.tag_empty": "(no tags)",
   "p2p.ui.filter_type_only": "This medium type does not support tag / NBT filtering",
   "p2p.ui.filter_type_only2": "Only ITEM channels have the Tag and NBT pages",
-
   "p2p.ui.create.header": "New Channel · Choose Type",
-
   "p2p.ui.rename": "Rename Channel",
   "p2p.ui.set_priority": "Set Priority",
-
   "p2p.ui.input_hint": "Input",
   "p2p.ui.ok": "OK",
-
   "p2p.ui.select_group": "Select Group",
   "p2p.ui.group_none_option": "(No Group)",
   "p2p.ui.no_group": "No groups to choose from",
-
   "p2p.ui.select_network": "Select Network",
   "p2p.ui.channel_count": "Channel %d",
   "p2p.ui.enter_network": "Enter Network",
   "p2p.ui.back": "Back",
   "p2p.ui.share_hint": "Shared networks: /p2p invite <player>",
   "p2p.ui.no_network": "No accessible networks",
-
   "p2p.hud.bind": "P2P Bind Mode",
   "p2p.hud.bind_channel": " · Channel #%d",
   "p2p.hud.bind_no_channel": " · No bound channel",
   "p2p.hud.hint": "  |  Right-click = input   Left-click = output  Ctrl = chain  (press B again to exit)",
   "p2p.hud.dimension": "Dimension: %s",
   "p2p.hud.block": "Block: ",
-
   "p2p.msg.channel_gone": "Bound channel #%d no longer exists.",
   "p2p.msg.no_perm": "Channel #%d belongs to someone else's network; you have no permission to edit it.",
   "p2p.msg.endpoint_removed": "Removed the endpoint from channel #%d.",
@@ -130,7 +114,6 @@
   "p2p.msg.chain_added": "Chain-bound %1$d identical machines to channel #%2$d",
   "p2p.msg.unchain_none": "No matching machines found nearby to chain-unbind.",
   "p2p.msg.unchain_removed": "Chain-unbound %1$d identical machines",
-
   "p2p.msg.bind_on": "Bind mode ON: empty-hand right-click = input / left-click = output, hold Ctrl = chain · channel #%d",
   "p2p.msg.bind_on_no_channel": "Bind mode ON: empty-hand right-click = input / left-click = output, hold Ctrl = chain (no channel selected yet; open the P2P screen, pick a channel, then click 'Set as Bound Channel')",
   "p2p.msg.bind_off": "Bind mode OFF",
@@ -142,7 +125,6 @@
   "p2p.msg.bind_not_accessible": "Channel #%d is not in a network you can access.",
   "p2p.msg.bind_cleared": "Cleared the current bound channel.",
   "p2p.msg.bind_set": "Bound channel set to #%d; press the bind-mode key, then empty-hand right-click = input / left-click = output",
-
   "p2p.cmd.usage.header": "§6[P2P]§r Network share commands:",
   "p2p.cmd.usage.invite": "§7/p2p invite <player>§r  Invite a player to share your network (they must be online)",
   "p2p.cmd.usage.accept": "§7/p2p accept [player]§r  Accept an invite (oldest if no player given)",
@@ -186,5 +168,12 @@
   "p2p.cmd.invites.none_received": "No pending invites.",
   "p2p.cmd.invites.line": "%1$s invited you to share network '%2$s'  ",
   "p2p.cmd.invites.sent_prefix": "§8Sent:§r",
-  "p2p.cmd.invites.hint": "Use §7/p2p invite <player>§r to invite someone to share a network."
+  "p2p.cmd.invites.hint": "Use §7/p2p invite <player>§r to invite someone to share a network.",
+  "p2p.ui.chunkload_on": "Chunk Load: ON",
+  "p2p.ui.chunkload_off": "Chunk Load: OFF",
+  "p2p.msg.chunkload_disabled": "Chunk loading is disabled by server config (chunkload.enabled)",
+  "p2p.msg.chunkload_no_perm": "Only creative players can use chunk loading (server admins can allow everyone in config)",
+  "p2p.msg.chunkload_on": "Network \"%s\" chunk loading enabled: bound endpoints' chunks stay loaded while any member is online",
+  "p2p.msg.chunkload_off": "Network \"%s\" chunk loading disabled",
+  "p2p.type.unknown": "Unknown medium"
 }

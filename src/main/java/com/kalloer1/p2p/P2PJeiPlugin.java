@@ -1,6 +1,7 @@
 package com.kalloer1.p2p;
 
-import com.kalloer1.p2p.channel.ChannelType;
+import com.kalloer1.p2p.medium.Medium;
+import com.kalloer1.p2p.medium.Mediums;
 import com.kalloer1.p2p.client.screen.FilterEditor;
 import mezz.jei.api.IModPlugin;
 import mezz.jei.api.JeiPlugin;
@@ -41,13 +42,13 @@ public class P2PJeiPlugin implements IModPlugin {
     private static class FilterEditorGhostHandler implements IGhostIngredientHandler<FilterEditor> {
         @Override
         public <I> List<IGhostIngredientHandler.Target<I>> getTargetsTyped(FilterEditor gui, ITypedIngredient<I> ingredient, boolean doStart) {
-            ChannelType type = gui.getType();
+            Medium type = gui.getType();
             // 物品频道收物品模板，流体频道收流体模板；能量频道没有模板可填，直接拒绝
-            if (type != ChannelType.ITEM && type != ChannelType.FLUID) return Collections.emptyList();
+            if (type != Mediums.ITEM && type != Mediums.FLUID) return Collections.emptyList();
             if (!gui.isItemPage()) return Collections.emptyList();   // only the 物品 page uses the marker grid
             // ITypedIngredient.getItemStack() / getIngredient(type) 返回的是 Optional：
             // 空 Optional 表示"这个条目不是该类型"，不是"空堆叠"。
-            boolean ok = (type == ChannelType.ITEM)
+            boolean ok = (type == Mediums.ITEM)
                     ? ingredient.getItemStack().isPresent()
                     : ingredient.getIngredient(ForgeTypes.FLUID_STACK).isPresent()
                         || ingredient.getItemStack().isPresent();   // 流体频道也允许直接拖桶

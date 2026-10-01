@@ -29,7 +29,9 @@ public class P2PFlatButton extends Button {
     @Override
     protected void renderWidget(GuiGraphics gg, int mx, int my, float pt) {
         int x = getX(), y = getY(), w = getWidth(), h = getHeight();
-        boolean hovered = isHoveredOrFocused();
+        // 只看鼠标悬停，不看键盘焦点：vanilla 会在点击后把键盘焦点留在按钮上，
+        // 如果把焦点也画成悬停高亮，按钮看起来就永远卡在按下状态弹不起来。
+        boolean hovered = isHovered();
         P2PGuiTextures.button(gg, x, y, w, h, hovered, active, selected);
         if (getMessage() != null) {
             Font f = Minecraft.getInstance().font;

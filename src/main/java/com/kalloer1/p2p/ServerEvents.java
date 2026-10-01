@@ -1,16 +1,25 @@
 package com.kalloer1.p2p;
 
+import com.kalloer1.p2p.chunkload.ChunkLoadManager;
 import com.kalloer1.p2p.client.ClientBindState;
+import com.kalloer1.p2p.channel.Channel;
 import com.kalloer1.p2p.channel.ChannelManager;
+import com.kalloer1.p2p.channel.Member;
 import com.kalloer1.p2p.network.BindClickC2SPacket;
 import com.kalloer1.p2p.network.ModMessages;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
-import net.minecraft.server.level.ServerLevel;
+import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
@@ -48,8 +57,48 @@ public class ServerEvents {
     @SubscribeEvent
     public static void onServerStopping(ServerStoppingEvent evt) {
         ChannelManager.INSTANCE.setDirty();
-        P2P.LOGGER.info("[p2p] ChannelManager marked dirty for world-save flush (channels={})",
-                ChannelManager.INSTANCE.getAllChannels().size());
+        ChunkLoadManager.clearAll(evt.getServer());
+        P2P.LOGGER.info("[p2p] ServerStopping: ChannelManager marked dirty, chunkload tickets cleared");
+    }
+
+    /**
+     * 每秒两件事：
+     * <ol>
+     *   <li><b>blockId 懒回填</b>：老版本绑定的端点没有 {@code Member.blockId}（GUI 里跨维度时画不出
+     *       方块图标）。等它的区块被服务端加载的那一刻补记，标记存档并全量重同步，玩家不用重新绑定。</li>
+     *   <li><b>区块强制加载重算</b>：见 {@link ChunkLoadManager#onServerTick}——期望集合与持有集合
+     *       做差量增删，成员全下线即卸载。</li>
+     * </ol>
+     */
+    @SubscribeEvent
+    public static void onServerTick(TickEvent.ServerTickEvent evt) {
+        if (evt.phase != TickEvent.Phase.END) return;
+        MinecraftServer server = evt.getServer();
+
+        boolean backfilled = false;
+        for (Channel c : ChannelManager.INSTANCE.getAllChannels()) {
+            for (Member m : c.members) {
+                if (m.blockId != null) continue;
+                ServerLevel level = server.getLevel(ResourceKey.create(Registries.DIMENSION, m.dim));
+                if (level == null || !level.isLoaded(m.pos)) continue;
+                var state = level.getBlockState(m.pos);
+                if (state.isAir()) continue;
+                ResourceLocation id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
+                if (id == null) continue;
+                m.blockId = id;
+                ChannelManager.INSTANCE.setDirty();
+                backfilled = true;
+                P2P.LOGGER.info("[p2p] backfilled blockId={} for endpoint {} in {}", id, m.pos, m.dim);
+            }
+        }
+        if (backfilled) {
+            // 回填是秒级偶发事件，量可忽略：逐玩家发各自可见性过滤后的全量快照
+            for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+                ChannelManager.INSTANCE.pushSync(p);
+            }
+        }
+
+        ChunkLoadManager.onServerTick(server);
     }
 
     /** 左键：绑定模式下空手点击 = 设置输出（OUTPUT）。两侧都取消破坏，避免误删方块。 */

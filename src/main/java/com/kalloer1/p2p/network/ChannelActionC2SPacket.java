@@ -2,13 +2,15 @@ package com.kalloer1.p2p.network;
 
 import com.kalloer1.p2p.Lang;
 import com.kalloer1.p2p.P2P;
+import com.kalloer1.p2p.P2PConfig;
 import com.kalloer1.p2p.channel.Channel;
 import com.kalloer1.p2p.channel.ChannelManager;
-import com.kalloer1.p2p.channel.ChannelType;
 import com.kalloer1.p2p.channel.Filter;
 import com.kalloer1.p2p.channel.Group;
 import com.kalloer1.p2p.channel.Member;
+import com.kalloer1.p2p.channel.Network;
 import com.kalloer1.p2p.channel.Role;
+import com.kalloer1.p2p.medium.Mediums;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
@@ -27,7 +29,8 @@ import java.util.function.Supplier;
 public class ChannelActionC2SPacket {
     public enum Action {
         CREATE, DELETE, SET_RATE, SET_SPEED, TOGGLE_REDSTONE, CYCLE_DISTRIBUTION, SET_GROUP, SET_FILTER, RENAME,
-        CREATE_GROUP, DELETE_GROUP, SET_ROLE, SET_TYPE, CLEAN_AIR, REMOVE_MEMBER, SET_PRIORITY, SET_FACE
+        CREATE_GROUP, DELETE_GROUP, SET_ROLE, SET_TYPE, CLEAN_AIR, REMOVE_MEMBER, SET_PRIORITY, SET_FACE,
+        TOGGLE_CHUNKLOAD
     }
 
     /** Upper bound for the rate/speed fields. Integer.MAX_VALUE lets a channel move everything it can, like Pipez' creative upgrade. */
@@ -110,8 +113,7 @@ public class ChannelActionC2SPacket {
 
         switch (action) {
             case CREATE -> {
-                ChannelType t = ChannelType.valueOf(createType);
-                Channel c = cm.createChannel(cm.getOrCreateNetwork(player), t);
+                Channel c = cm.createChannel(cm.getOrCreateNetwork(player), Mediums.resolve(createType));
                 if (name != null && !name.isEmpty()) c.name = name;
                 if (intVal >= 0) c.groupId = intVal;
             }
@@ -154,7 +156,7 @@ public class ChannelActionC2SPacket {
                 Channel c = cm.getChannel(channelId);
                 if (c != null && name != null && !name.isEmpty()) c.name = name;
             }
-            case SET_TYPE -> cm.setChannelType(channelId, ChannelType.valueOf(createType));
+            case SET_TYPE -> cm.setChannelType(channelId, Mediums.resolve(createType));
             case CREATE_GROUP -> cm.createGroup(cm.getOrCreateNetwork(player), name == null ? "" : name);
             case DELETE_GROUP -> cm.deleteGroup(intVal);   // intVal carries the group id
             case SET_FILTER -> {
@@ -218,6 +220,29 @@ public class ChannelActionC2SPacket {
                     player.displayClientMessage(Lang.t(Lang.MSG_CLEARED_AIR, removed).withStyle(ChatFormatting.YELLOW), true);
                 else
                     player.displayClientMessage(Lang.t(Lang.MSG_NO_AIR).withStyle(ChatFormatting.GRAY), true);
+            }
+            case TOGGLE_CHUNKLOAD -> {
+                // 三道闸：网络编辑权限 → 配置总开关 → 游戏模式（创造默认可用，生存看配置）。
+                Channel c = cm.getChannel(channelId);
+                Network n = c == null ? null : cm.getNetwork(c.networkId);
+                if (n == null) return;
+                if (!cm.canEditChannel(player, c)) {
+                    player.displayClientMessage(
+                            Lang.t(Lang.MSG_NO_PERM, channelId).withStyle(ChatFormatting.RED), true);
+                    return;
+                }
+                if (!P2PConfig.chunkLoadEnabled.get()) {
+                    player.displayClientMessage(Lang.t(Lang.MSG_CHUNKLOAD_DISABLED).withStyle(ChatFormatting.RED), true);
+                    return;
+                }
+                if (!player.isCreative() && !P2PConfig.chunkLoadAllowSurvival.get()) {
+                    player.displayClientMessage(Lang.t(Lang.MSG_CHUNKLOAD_NO_PERM).withStyle(ChatFormatting.RED), true);
+                    return;
+                }
+                n.chunkLoad = !n.chunkLoad;
+                player.displayClientMessage(Lang.t(n.chunkLoad ? Lang.MSG_CHUNKLOAD_ON : Lang.MSG_CHUNKLOAD_OFF, n.name)
+                        .withStyle(n.chunkLoad ? ChatFormatting.GREEN : ChatFormatting.YELLOW), false);
+                P2P.LOGGER.info("[p2p] TOGGLE_CHUNKLOAD: network={} ({}) -> {}", n.id, n.name, n.chunkLoad);
             }
         }
         // Persist every mutation above (rate/speed/face/priority/role/filter/redstone/distribution...).

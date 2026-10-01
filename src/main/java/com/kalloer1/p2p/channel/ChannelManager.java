@@ -2,6 +2,7 @@ package com.kalloer1.p2p.channel;
 
 import com.kalloer1.p2p.Lang;
 import com.kalloer1.p2p.P2P;
+import com.kalloer1.p2p.medium.Medium;
 import com.kalloer1.p2p.network.ChannelSyncS2CPacket;
 import com.kalloer1.p2p.network.ModMessages;
 import net.minecraft.ChatFormatting;
@@ -187,7 +188,7 @@ public class ChannelManager extends SavedData {
     }
 
     // ---- Channel ----
-    public Channel createChannel(Network net, ChannelType type) {
+    public Channel createChannel(Network net, Medium type) {
         int cid = net.allocateChannelId();
         Channel c = new Channel(cid, type, -1);
         c.networkId = net.id;
@@ -421,7 +422,7 @@ public class ChannelManager extends SavedData {
     }
 
     /** Switch a channel's transport medium at any time (the type is no longer locked at creation). */
-    public void setChannelType(int channelId, ChannelType type) {
+    public void setChannelType(int channelId, Medium type) {
         Channel c = getChannel(channelId);
         if (c != null) {
             c.type = type;

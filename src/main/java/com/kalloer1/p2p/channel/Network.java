@@ -22,6 +22,8 @@ public class Network {
     /** 已收到邀请但尚未接受的玩家 UUID（接受后移入 members）。 */
     public final Set<String> invited = new HashSet<>();
     public int nextChannelId = 1;
+    /** 逐网络强制加载开关（默认关）。见 ChunkLoadManager：配置总开关 + 创造权限 + 成员全下线即卸载。 */
+    public boolean chunkLoad;
 
     public Network(int id, String name, String owner) {
         this.id = id;
@@ -58,6 +60,7 @@ public class Network {
         tag.putString("members", String.join(",", members));
         tag.putString("invited", String.join(",", invited));
         tag.putInt("nextChannelId", nextChannelId);
+        if (chunkLoad) tag.putBoolean("chunkLoad", true);
         return tag;
     }
 
@@ -67,6 +70,7 @@ public class Network {
         n.members.addAll(split(tag.getString("members")));
         n.invited.addAll(split(tag.getString("invited")));
         n.nextChannelId = tag.getInt("nextChannelId");
+        n.chunkLoad = tag.getBoolean("chunkLoad");
         return n;
     }
 

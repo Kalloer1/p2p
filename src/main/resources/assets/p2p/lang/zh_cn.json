@@ -2,7 +2,6 @@
   "key.p2p.open": "打开 P2P",
   "key.p2p.bindmode": "绑定模式",
   "key.categories.p2p": "P2P",
-
   "p2p.ui.title": "P2P 频道管理",
   "p2p.ui.search": "搜索",
   "p2p.ui.redstone": "红石: %s",
@@ -31,41 +30,33 @@
   "p2p.ui.filter": "过滤",
   "p2p.ui.group_none": "无",
   "p2p.ui.no_match": "无匹配频道",
-
   "p2p.ui.type.item": "物品",
   "p2p.ui.type.fluid": "流体",
   "p2p.ui.type.energy": "能量",
-
   "p2p.ui.dist.priority": "优先",
   "p2p.ui.dist.nearest": "就近",
   "p2p.ui.dist.farthest": "最远",
   "p2p.ui.dist.split": "均分",
   "p2p.ui.dist.round": "轮询",
-
   "p2p.ui.redstone.high": "高电平",
   "p2p.ui.redstone.low": "低电平",
   "p2p.ui.redstone.never": "禁用",
   "p2p.ui.redstone.ignore": "忽略",
-
   "p2p.ui.face.up": "上",
   "p2p.ui.face.down": "下",
   "p2p.ui.face.north": "北",
   "p2p.ui.face.south": "南",
   "p2p.ui.face.east": "东",
   "p2p.ui.face.west": "西",
-
   "p2p.ui.dim.overworld": "主界",
   "p2p.ui.dim.nether": "下界",
   "p2p.ui.dim.end": "末地",
-
   "p2p.ui.unit.item": "物品",
   "p2p.ui.unit.mb": "mB",
   "p2p.ui.unit.fe": "FE",
-
   "p2p.ui.role.owner": "拥有者",
   "p2p.ui.role.admin": "管理员",
   "p2p.ui.role.shared": "共享",
-
   "p2p.ui.filter.title": "过滤编辑器",
   "p2p.ui.cancel": "取消",
   "p2p.ui.done": "完成",
@@ -93,33 +84,26 @@
   "p2p.ui.tag_empty": "（无标签）",
   "p2p.ui.filter_type_only": "该介质类型不支持标签 / NBT 过滤",
   "p2p.ui.filter_type_only2": "仅 ITEM 频道可用标签与 NBT 页",
-
   "p2p.ui.create.header": "新建频道 · 选择类型",
-
   "p2p.ui.rename": "重命名频道",
   "p2p.ui.set_priority": "设置优先级",
-
   "p2p.ui.input_hint": "输入",
   "p2p.ui.ok": "确定",
-
   "p2p.ui.select_group": "选择分组",
   "p2p.ui.group_none_option": "（无分组）",
   "p2p.ui.no_group": "没有可选分组",
-
   "p2p.ui.select_network": "选择网络",
   "p2p.ui.channel_count": "频道 %d",
   "p2p.ui.enter_network": "进入此网络",
   "p2p.ui.back": "返回",
   "p2p.ui.share_hint": "共享网络：/p2p invite <玩家>",
   "p2p.ui.no_network": "没有可访问的网络",
-
   "p2p.hud.bind": "P2P 绑定模式",
   "p2p.hud.bind_channel": " · 频道 #%d",
   "p2p.hud.bind_no_channel": " · 未选当前频道",
   "p2p.hud.hint": "  |  右键=输入  左键=输出  Ctrl=连锁  (再按 B 退出)",
   "p2p.hud.dimension": "维度: %s",
   "p2p.hud.block": "方块: ",
-
   "p2p.msg.channel_gone": "绑定的频道 #%d 已不存在。",
   "p2p.msg.no_perm": "频道 #%d 属于别人的网络，你没有改动权限。",
   "p2p.msg.endpoint_removed": "已移出频道 #%d 的端点。",
@@ -130,7 +114,6 @@
   "p2p.msg.chain_added": "已连锁绑定 %1$d 台相同机器到频道 #%2$d",
   "p2p.msg.unchain_none": "附近没有可连锁解绑的相同机器。",
   "p2p.msg.unchain_removed": "已连锁解绑 %1$d 台相同机器",
-
   "p2p.msg.bind_on": "绑定模式已开启：空手右键=输入 / 左键=输出，按住 Ctrl=连锁 · 频道 #%d",
   "p2p.msg.bind_on_no_channel": "绑定模式已开启：空手右键=输入 / 左键=输出，按住 Ctrl=连锁（还没选当前频道，在 P2P 界面点『设为当前绑定频道』）",
   "p2p.msg.bind_off": "绑定模式已关闭",
@@ -142,7 +125,6 @@
   "p2p.msg.bind_not_accessible": "频道 #%d 不在你可以访问的网络中。",
   "p2p.msg.bind_cleared": "已清除当前绑定频道。",
   "p2p.msg.bind_set": "当前绑定频道已设为 #%d，按绑定模式键后空手右键=输入 / 左键=输出",
-
   "p2p.cmd.usage.header": "§6[P2P]§r 网络共享指令：",
   "p2p.cmd.usage.invite": "§7/p2p invite <玩家>§r  邀请某玩家共享你的网络（对方需在线）",
   "p2p.cmd.usage.accept": "§7/p2p accept [玩家]§r  接受邀请（不填玩家则接受最早一个）",
@@ -186,5 +168,12 @@
   "p2p.cmd.invites.none_received": "没有待处理的邀请。",
   "p2p.cmd.invites.line": "%1$s 邀请你共享网络「%2$s」  ",
   "p2p.cmd.invites.sent_prefix": "§8已发出:§r",
-  "p2p.cmd.invites.hint": "用 §7/p2p invite <玩家>§r 邀请别人共享网络。"
+  "p2p.cmd.invites.hint": "用 §7/p2p invite <玩家>§r 邀请别人共享网络。",
+  "p2p.ui.chunkload_on": "区块加载:开",
+  "p2p.ui.chunkload_off": "区块加载:关",
+  "p2p.msg.chunkload_disabled": "区块加载功能已被服务器配置禁用（config/chunkload.enabled）",
+  "p2p.msg.chunkload_no_perm": "只有创造模式玩家可以使用区块加载（服主可在配置中开放给所有人）",
+  "p2p.msg.chunkload_on": "网络「%s」已开启区块加载：所有绑定端点所在区块将被强制加载，全员下线后自动卸载",
+  "p2p.msg.chunkload_off": "网络「%s」已关闭区块加载",
+  "p2p.type.unknown": "未知介质"
 }

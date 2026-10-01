@@ -1,5 +1,7 @@
 package com.kalloer1.p2p.channel;
 
+import com.kalloer1.p2p.medium.Medium;
+import com.kalloer1.p2p.medium.Mediums;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
@@ -10,7 +12,7 @@ import java.util.List;
 /** A typed point-to-point link. Members are pulled from INPUT faces and pushed to OUTPUT faces. */
 public class Channel {
     public final int id;
-    public ChannelType type;            // mutable: a channel's medium can be switched at any time from the detail screen
+    public Medium type;                // mutable: a channel's medium can be switched at any time from the detail screen
     public String name;                 // user-facing label, editable; defaults to "频道 #id"
     public int groupId;
     public int networkId = 0;          // owning network id (for multi-network filtering)
@@ -24,7 +26,7 @@ public class Channel {
     public Distribution distribution = Distribution.ROUND_ROBIN;
     public final List<Member> members = new ArrayList<>();
 
-    public Channel(int id, ChannelType type, int groupId) {
+    public Channel(int id, Medium type, int groupId) {
         this.id = id;
         this.type = type;
         this.name = "频道 #" + id;
@@ -50,7 +52,7 @@ public class Channel {
     public CompoundTag serializeNBT() {
         CompoundTag tag = new CompoundTag();
         tag.putInt("id", id);
-        tag.putString("type", type.name());
+        tag.putString("type", type.id);
         tag.putString("name", name == null ? "" : name);
         tag.putInt("groupId", groupId);
         tag.putInt("networkId", networkId);
@@ -65,7 +67,7 @@ public class Channel {
     }
 
     public static Channel deserializeNBT(CompoundTag tag) {
-        Channel c = new Channel(tag.getInt("id"), ChannelType.valueOf(tag.getString("type")), tag.getInt("groupId"));
+        Channel c = new Channel(tag.getInt("id"), Mediums.resolve(tag.getString("type")), tag.getInt("groupId"));
         if (tag.contains("name")) c.name = tag.getString("name");
         c.networkId = tag.getInt("networkId");
         c.rate = tag.getInt("rate");

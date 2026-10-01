@@ -24,6 +24,9 @@ public final class Lang {
     public static final String UI_DISTRIBUTION = "p2p.ui.distribution";
     public static final String UI_GROUP = "p2p.ui.group";
     public static final String UI_CLEAN_AIR = "p2p.ui.clean_air";
+    public static final String UI_TYPE_UNKNOWN = "p2p.type.unknown";
+    public static final String UI_CHUNKLOAD_ON = "p2p.ui.chunkload_on";
+    public static final String UI_CHUNKLOAD_OFF = "p2p.ui.chunkload_off";
     public static final String UI_RATE_MAX = "p2p.ui.rate_max";
     public static final String UI_BIND_CHANNEL = "p2p.ui.bind_channel";
     public static final String UI_DELETE_CHANNEL = "p2p.ui.delete_channel";
@@ -170,6 +173,10 @@ public final class Lang {
     public static final String MSG_ENDPOINT_REMOVED_KEY = "p2p.msg.endpoint_removed_key";
     public static final String MSG_CLEARED_AIR = "p2p.msg.cleared_air";
     public static final String MSG_NO_AIR = "p2p.msg.no_air";
+    public static final String MSG_CHUNKLOAD_DISABLED = "p2p.msg.chunkload_disabled";
+    public static final String MSG_CHUNKLOAD_NO_PERM = "p2p.msg.chunkload_no_perm";
+    public static final String MSG_CHUNKLOAD_ON = "p2p.msg.chunkload_on";
+    public static final String MSG_CHUNKLOAD_OFF = "p2p.msg.chunkload_off";
     public static final String MSG_BIND_NOT_ACCESSIBLE = "p2p.msg.bind_not_accessible";
     public static final String MSG_BIND_CLEARED = "p2p.msg.bind_cleared";
     public static final String MSG_BIND_SET = "p2p.msg.bind_set";

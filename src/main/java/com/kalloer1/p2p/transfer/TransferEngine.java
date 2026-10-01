@@ -2,7 +2,6 @@ package com.kalloer1.p2p.transfer;
 
 import com.kalloer1.p2p.channel.Channel;
 import com.kalloer1.p2p.channel.ChannelManager;
-import com.kalloer1.p2p.channel.ChannelType;
 import com.kalloer1.p2p.channel.Member;
 import com.kalloer1.p2p.channel.Role;
 import net.minecraft.resources.ResourceLocation;
@@ -35,6 +34,7 @@ public final class TransferEngine {
     private static final float BACKOFF_FAST_FORWARD_RATIO = 0.6f;   // once backoff reaches 60% of cap, jump straight to cap
 
     private int globalTick = 0;
+    private long lastSkipLog = -100;
 
     private TransferEngine() {}
 
@@ -61,13 +61,17 @@ public final class TransferEngine {
                 if (m.role == Role.INPUT) inputs.add(m);
                 else outputs.add(m);
             }
-            if (inputs.isEmpty() || outputs.isEmpty()) continue;
+            if (inputs.isEmpty() || outputs.isEmpty()) {
+                // 诊断：介质端点角色不全（常见于新频道只绑了一端，或两端角色相同）
+                if (globalTick - lastSkipLog > 20) {
+                    lastSkipLog = globalTick;
+                    com.kalloer1.p2p.P2P.LOGGER.info("[p2p] channel #{} ({}) skipped: inputs={} outputs={}",
+                            channel.id, channel.type.id, inputs.size(), outputs.size());
+                }
+                continue;
+            }
 
-            int moved = switch (channel.type) {
-                case ITEM -> ItemTransfer.transfer(cache, channel, levels, inputs, outputs, channel.rate, globalTick);
-                case FLUID -> FluidTransfer.transfer(cache, channel, levels, inputs, outputs, channel.rate, globalTick);
-                case ENERGY -> EnergyTransfer.transfer(cache, channel, levels, inputs, outputs, channel.rate, globalTick);
-            };
+            int moved = channel.type.transfer(cache, channel, levels, inputs, outputs, channel.rate, globalTick);
             updateBackoff(channel, moved > 0);
         }
     }
@@ -89,7 +93,7 @@ public final class TransferEngine {
     private void updateBackoff(Channel channel, boolean success) {
         channel.lastRunTick = globalTick;
         int speed = Math.max(1, channel.speed);
-        float maxBackoff = (channel.type == ChannelType.ENERGY) ? BACKOFF_MAX_TICKS_ENERGY : BACKOFF_MAX_TICKS;
+        float maxBackoff = channel.type.backoffMaxTicks;
         if (success) {
             // Hard reset: a channel that moved items this round returns to FULL SPEED next tick.
             // (The old /3 decay made a woken channel ramp up over several rounds; Pipez is full
