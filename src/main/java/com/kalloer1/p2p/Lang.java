@@ -23,7 +23,6 @@ public final class Lang {
     public static final String UI_REDSTONE = "p2p.ui.redstone";
     public static final String UI_DISTRIBUTION = "p2p.ui.distribution";
     public static final String UI_GROUP = "p2p.ui.group";
-    public static final String UI_CLEAN_AIR = "p2p.ui.clean_air";
     public static final String UI_TYPE_UNKNOWN = "p2p.type.unknown";
     public static final String UI_CHUNKLOAD_ON = "p2p.ui.chunkload_on";
     public static final String UI_CHUNKLOAD_OFF = "p2p.ui.chunkload_off";
@@ -49,6 +48,27 @@ public final class Lang {
     public static final String UI_FILTER = "p2p.ui.filter";
     public static final String UI_GROUP_NONE = "p2p.ui.group_none";
     public static final String UI_NO_MATCH = "p2p.ui.no_match";
+
+    // ---- 配置 pill 短标签（spec v1.1：pill 只显短词，值进 tooltip，非默认态 TINT 提亮） ----
+    public static final String UI_PILL_REDSTONE = "p2p.ui.pill.redstone";
+    public static final String UI_PILL_DIST = "p2p.ui.pill.dist";
+    public static final String UI_PILL_GROUP = "p2p.ui.pill.group";
+    public static final String UI_PILL_CLEAN = "p2p.ui.pill.clean";
+    public static final String UI_PILL_CHUNKLOAD = "p2p.ui.pill.chunkload";
+    /** 面板脚注：端点多选 + 复制/粘贴提示。 */
+    public static final String UI_ENDPOINT_HINT = "p2p.ui.endpoint_hint";
+    /** 面板脚注（悬停左列表时）：频道多选 + 双击重命名说明（1.4.0）。 */
+    public static final String UI_CHANNEL_HINT = "p2p.ui.channel_hint";
+
+    // ---- 端点行失效状态（1.3.1：面板实时解析世界现状，不做破坏自动移除） ----
+    /** 已失效（维度已加载、坐标处方块为空气）行内标注。 */
+    public static final String UI_ENDPOINT_INVALID = "p2p.ui.endpoint_invalid";
+    /** 已失效行的悬停说明。 */
+    public static final String UI_ENDPOINT_INVALID_TIP = "p2p.ui.endpoint_invalid_tip";
+    /** 维度未加载（状态未知）行内提示。 */
+    public static final String UI_ENDPOINT_UNLOADED = "p2p.ui.endpoint_unloaded";
+    /** 清理失效端点按钮 tooltip。 */
+    public static final String UI_CLEAN_INVALID = "p2p.ui.clean_invalid";
 
     // ---- channel type ----
     public static final String UI_TYPE_ITEM = "p2p.ui.type.item";
@@ -81,10 +101,25 @@ public final class Lang {
     public static final String UI_DIM_NETHER = "p2p.ui.dim.nether";
     public static final String UI_DIM_END = "p2p.ui.dim.end";
 
-    // ---- unit short labels ----
-    public static final String UI_UNIT_ITEM = "p2p.ui.unit.item";
-    public static final String UI_UNIT_MB = "p2p.ui.unit.mb";
-    public static final String UI_UNIT_FE = "p2p.ui.unit.fe";
+    // ---- unit labels ----
+    /**
+     * 介质单位键前缀：{@code p2p.unit.<介质id，非字母数字换成下划线>}，如 {@code p2p.unit.create_stress}。
+     * 单位与介质 displayName 分开（旧 {@code p2p.ui.unit.*} 三键合并到此），
+     * 速率行因此只需并排显示「名称 + 单位」而不再截断长名称。
+     */
+    public static final String UNIT_PREFIX = "p2p.unit.";
+
+    /** 介质 id → 单位翻译键。 */
+    public static String unitKey(String mediumId) {
+        return UNIT_PREFIX + (mediumId == null ? "" : mediumId.replaceAll("[^A-Za-z0-9]", "_"));
+    }
+
+    /** 单位文案；该介质没有配键时返回空串（调用方只显示名称）。 */
+    public static String unitOf(String mediumId) {
+        String key = unitKey(mediumId);
+        String value = Component.translatable(key).getString();
+        return value.equals(key) ? "" : value;
+    }
 
     // ---- network role ----
     public static final String UI_ROLE_OWNER = "p2p.ui.role.owner";
@@ -163,6 +198,10 @@ public final class Lang {
     public static final String MSG_CHAIN_ADDED = "p2p.msg.chain_added";
     public static final String MSG_UNCHAIN_NONE = "p2p.msg.unchain_none";
     public static final String MSG_UNCHAIN_REMOVED = "p2p.msg.unchain_removed";
+    /** 绑定点击回显的后缀：当前频道端点总数（1.3.1）。 */
+    public static final String MSG_ENDPOINT_TOTAL = "p2p.msg.endpoint_total";
+    /** 删除组级联删除组内频道的聊天回显（1.4.0）。 */
+    public static final String MSG_GROUP_DELETED = "p2p.msg.group_deleted";
 
     // ---- bind-mode + packet chat messages ----
     public static final String MSG_BIND_ON = "p2p.msg.bind_on";

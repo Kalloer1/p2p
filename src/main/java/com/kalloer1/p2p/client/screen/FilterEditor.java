@@ -1,6 +1,9 @@
 package com.kalloer1.p2p.client.screen;
 
 import com.kalloer1.p2p.Lang;
+import com.kalloer1.p2p.api.FilterPageContext;
+import com.kalloer1.p2p.api.FilterPageExtension;
+import com.kalloer1.p2p.api.FilterPageExtensions;
 import com.kalloer1.p2p.medium.Medium;
 import com.kalloer1.p2p.medium.Mediums;
 import com.kalloer1.p2p.channel.Filter;
@@ -9,13 +12,15 @@ import com.kalloer1.p2p.channel.Role;
 import com.kalloer1.p2p.network.ChannelActionC2SPacket;
 import com.kalloer1.p2p.network.ModMessages;
 import com.mojang.blaze3d.platform.InputConstants;
-import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.components.events.GuiEventListener;
+import net.minecraft.client.gui.narration.NarratableEntry;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.renderer.Rect2i;
@@ -29,11 +34,9 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.material.Fluid;
-import net.minecraft.world.level.material.Fluids;
-import net.minecraftforge.client.extensions.common.IClientFluidTypeExtensions;
 import net.minecraftforge.fluids.FluidStack;
 import net.minecraftforge.fluids.FluidUtil;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -41,55 +44,47 @@ import java.util.List;
 /**
  * Filter editor for one endpoint (member) of a channel.
  *
- * This is a REAL vanilla container screen ({@link AbstractContainerScreen}) drawn with the vanilla shulker-box
- * GUI texture, exactly like the AE2 ME Interface config screen:
- *  - the 27 marker slots (9x3) and the player's inventory + hotbar are genuine {@link Slot}s, so vanilla draws
- *    the slot backgrounds, hover highlight and item tooltips for us (no hand-painted black squares) — but ONLY
- *    while the ITEM page is active (JEI ghost-drag target). On the TAG / NBT pages every slot is deactivated and
- *    the grid region is painted over, so the item grid never leaks into those pages.
- *  - because it is an AbstractContainerScreen, JEI recognises the GUI bounds and shows its item list / search
- *    on both sides, and JEI ghost-dragging into the marker grid works (gated to the ITEM page by P2PJeiPlugin).
+ * 1.2.0 换皮不换骨：潜影盒纹理与 bevel 全部退役，改为 iOS 遮罩 + 圆角 6 白卡（规格 §4）。
+ * 结构不变：这仍是一个真正的 {@link AbstractContainerScreen}，
+ *  - 27 个标记槽（9x3）与玩家背包/快捷栏都是真正的 {@link Slot}，所以原版负责物品绘制、
+ *    悬停高亮与物品 tooltip；只有 ITEM 页激活，TAG / NBT 页所有槽位置灰。
+ *  - 因为它是 AbstractContainerScreen，JEI 认得 GUI 边界并在两侧显示物品列表；拖入标记网格由
+ *    本体自带的 JEI 插件（{@code client.compat.jei.P2PJeiPlugin}，物品 → 27 个幽灵槽位）与
+ *    EMI 插件（{@code client.compat.emi.P2PEmiPlugin}，EmiStack 物品 → 网格区域）提供，
+ *    两个 API 都只是 compileOnly，查看器不在场时对应插件类根本不会被加载。
+ *  - 菜单是纯客户端的（无 MenuType、从不注册、从不同步），每个槽只读且 {@link #slotClicked}
+ *    被完全覆写，因此永远不会产生容器包；过滤器只在按「完成」时以一条 SET_FILTER 提交。
  *
- * The three pages are genuinely different:
- *  - ITEM: the 9x3 marker grid + whitelist/blacklist + strict-NBT toggle.
- *  - TAG:  a scrollable tag list (many rows) + whitelist/blacklist toggle for tags.
- *  - NBT:  a large multi-line NBT/regex editor.
- *
- * The menu is client-only (no MenuType, never registered, never synced): every slot is read-only and
- * {@link #slotClicked} is fully overridden, so no container packet is ever sent to the server. The resulting
- * filter is committed with a single SET_FILTER action packet when "完成" is pressed.
+ * 三个页面各自成立：ITEM = 9x3 标记网格 + 白/黑名单 + 严格 NBT 开关；TAG = 可滚动标签列表；
+ * NBT = 多行 NBT/正则编辑器。
  */
 public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMenu> {
 
-    // vanilla shulker box GUI: 176x166 drawn area inside a 256x256 texture
-    private static final ResourceLocation BG = new ResourceLocation("minecraft:textures/gui/container/shulker_box.png");
-    private static final int TEX_W = 256, TEX_H = 256;
-    private static final int VANILLA_H = 166;
-    /** extra room inserted between the marker grid and the player inventory (mode buttons / tag / nbt). */
-    private static final int EXTRA = 84;
+    /** 面板尺寸（规格 §4：184x264，原 176x250）。GRID_* 为 public：JEI/EMI 插件据此推算幽灵槽位。 */
+    static final int SLOT = 18;
+    public static final int GRID_COLS = 9, GRID_ROWS = 3;
 
-    static final int SLOT = 18, GRID_COLS = 9, GRID_ROWS = 3;
-    static final int GRID_X = 8, GRID_Y = 18;
-    /** vanilla player-inventory y (84) and hotbar y (142) shifted down by EXTRA. */
-    static final int INV_Y = 84 + EXTRA, HOTBAR_Y = 142 + EXTRA;
+    // 内容卡（segmented / 内容底板 / 模式行）统一内边距 8，宽 168
+    private static final int CARD_X = 8, CARD_W = 168;
+    // 导航行 y=8..28：取消 · 居中标题 · 完成
+    private static final int NAV_Y = 8, NAV_H = 20;
+    // segmented 页签 y=32..50，三段等宽
+    private static final int SEG_Y = 32, SEG_H = 18, SEG_CELL = CARD_W / 3;
+    // 内容底板 y=54..128（标记网格 / 标签列表 / NBT 编辑器共用）
+    private static final int CONTENT_Y = 54, CONTENT_BOTTOM = 128;
+    // 控件行 y=132（NBT 开关 / 标签输入 + 加标签），模式行 y=150（白名单 / 黑名单）
+    private static final int ROW_CTL = 132, ROW_MODE = 150, CTL_H = 14;
+    private static final int INV_LABEL_Y = 166;
 
-    private static final int STONE = 0xFF2C3138, HI = P2PGuiTextures.FAUX_HI, SH = P2PGuiTextures.FAUX_SH;
+    /** 标记网格起点（规格 §4：9x3、槽距 18、起点 x=11），在底板内垂直居中。 */
+    static final int GRID_X = 11, GRID_Y = 65;
+    /** 玩家背包沿用原版布局，只把槽位井换成主题画法。 */
+    static final int INV_X = 12, INV_Y = 178, HOTBAR_Y = 236;
 
-    /**
-     * Vertical layout (relative to topPos). The page content — marker grid / tag list / NBT box — lives in
-     * CONTENT_Y..CONTENT_BOTTOM; the tab row and the per-page controls sit below it, inside the inserted
-     * strip. The rows must never overlap the content region: the tab row used to be drawn *inside* the tag
-     * list / NBT editor rectangle, so those two swallowed every click aimed at the 标签 / NBT tabs.
-     */
-    private static final int CONTENT_Y = 18, CONTENT_BOTTOM = 96;
-    private static final int PANEL_BOTTOM = 98;   // dark panel behind the content region on TAG/NBT pages
-    private static final int ROW_TAB = 100;       // 标签页按钮行
-    private static final int ROW_CTL = 120;       // 各页控件行（NBT 开关 / 标签输入 + 加标签）
-    private static final int ROW_MODE = 140;      // 白名单 / 黑名单
-
-    // custom TAG list / NBT box geometry (relative to topPos)
-    private static final int TAG_X = 6, TAG_Y = CONTENT_Y, TAG_W = 164, TAG_LIST_H = CONTENT_BOTTOM - CONTENT_Y, TAG_ROW_H = 13;
-    private static final int NBT_X = 6, NBT_Y = CONTENT_Y, NBT_W = 164, NBT_H = CONTENT_BOTTOM - CONTENT_Y;
+    // 标签列表 / NBT 编辑器几何（相对 topPos）
+    private static final int TAG_X = 11, TAG_Y = CONTENT_Y + 1, TAG_W = 158,
+            TAG_LIST_H = CONTENT_BOTTOM - TAG_Y, TAG_ROW_H = P2PTheme.ROW_H;
+    private static final int NBT_X = 11, NBT_Y = CONTENT_Y + 1, NBT_W = 158, NBT_H = CONTENT_BOTTOM - NBT_Y;
 
     private final Screen parent;
     private final int channelId;
@@ -104,15 +99,20 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     private final List<ResourceLocation> itemTags = new ArrayList<>();
     private String nbtRegex = "";
 
+    /** Per-medium filter page hooked in via {@link FilterPageExtensions} (null when none registered). */
+    @Nullable
+    private final FilterPageExtension pageExt;
+    private final FilterPageContext pageCtx;
+
     private EditBox tagBox;
     private MultilineEdit nbtEdit;
     private final List<TagHit> tagHits = new ArrayList<>();
     private int tagScroll = 0;   // scroll offset for the tag list (vertical)
 
-    /** 过滤编辑器三个标签页：物品模板 / 标签 / NBT。点击标签按钮切换。 */
+    /** 过滤编辑器三个标签页：物品模板 / 标签 / NBT。点击 segmented 段切换。 */
     private enum Page { ITEM, TAG, NBT }
     private Page page = Page.ITEM;
-    private P2PFlatButton btnItem, btnTag, btnNbt;   // 顶部三个标签页
+    private P2PFlatButton btnItem, btnTag, btnNbt;   // segmented 三段
     private P2PFlatButton modeBtn, nbtBtn, addTagBtn; // 各页控件（按页显隐）
 
     public FilterEditor(Screen parent, int channelId, Medium type, Member member) {
@@ -124,11 +124,11 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         this.chType = type;
         this.member = member;
         this.extract = member.role == Role.INPUT;
-        this.imageWidth = 176;
-        this.imageHeight = VANILLA_H + EXTRA;          // 250
-        this.inventoryLabelY = this.imageHeight - 94;  // 156 — matches the shifted inventory rows
+        this.imageWidth = 184;
+        this.imageHeight = 264;
+        this.inventoryLabelY = INV_LABEL_Y;
         this.titleLabelX = 8;
-        this.titleLabelY = 6;
+        this.titleLabelY = NAV_Y + (NAV_H - 8) / 2;
 
         Filter existing = extract ? member.extractFilter : member.insertFilter;
         if (existing != null) {
@@ -139,48 +139,84 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
             itemTags.addAll(existing.getItemTags());
             this.nbtRegex = existing.getNbtRegex();
         }
+        this.pageExt = FilterPageExtensions.get(type == null ? null : type.id);
+        this.pageCtx = new FilterPageContext(this, channelId, member, extract);
+        if (pageExt != null) pageExt.onOpen(pageCtx, existing);
     }
 
     public Medium getType() { return chType; }
+
+    /** Public access to the client instance (used by {@link com.kalloer1.p2p.api.FilterPageContext}). */
+    public Minecraft getMinecraft() { return minecraft; }
+
+    /** Register a widget on this screen (used by {@link com.kalloer1.p2p.api.FilterPageExtension}). */
+    public <T extends GuiEventListener & Renderable & NarratableEntry> T addScreenWidget(T widget) {
+        return addRenderableWidget(widget);
+    }
+
+    /** The 27-slot ghost container rendered in the marker grid (used by filter page extensions). */
+    public SimpleContainer ghostContainer() { return menu.ghost; }
 
     /** Screen-space rectangle of the marker grid — JEI uses it as the ghost-drop target. */
     public Rect2i getMarkerGridArea() {
         return new Rect2i(leftPos + GRID_X, topPos + GRID_Y, GRID_COLS * SLOT, GRID_ROWS * SLOT);
     }
 
+    /** 网格槽距（18）。槽位井为 16x16 且起点即槽位原点，附属色块按此对齐。 */
+    public int getMarkerPitch() { return SLOT; }
+
+    /**
+     * 「模式」行（白名单/黑名单）的屏幕矩形。附属过滤页的模式钮与本体同一行、同一画法，
+     * 因此取本体常量而不是自己写死偏移。
+     */
+    public Rect2i getModeRowArea() {
+        return new Rect2i(leftPos + CARD_X, topPos + ROW_MODE, CARD_W, CTL_H);
+    }
+
     /** JEI ghost-drag may only drop an item onto the grid while the ITEM page is active. */
     public boolean isItemPage() { return page == Page.ITEM; }
 
-    /** Called by the JEI ghost handler and by clicking an inventory slot. */
-    public void addMarker(ItemStack stack) {
-        if (stack == null || stack.isEmpty()) return;
+    /**
+     * Called by the JEI ghost handler, the EMI drag-drop handler and by clicking an inventory slot.
+     *
+     * @return 是否真的写入了模板（物品页成功添加 / 流体频道成功转换出流体模板才 true）。
+     *         拖放 handler（EMI 等）据此决定是否消费这次拖放：false 时交还给后续 handler，
+     *         避免本体吞掉附属（如 compat 气体罐）的拖放路径。
+     */
+    public boolean addMarker(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
         if (chType == Mediums.ITEM) {
-            if (itemTpl.size() >= GRID_COLS * GRID_ROWS) return;
-            for (ItemStack s : itemTpl) if (ItemStack.isSameItem(s, stack)) return; // no duplicates
+            if (itemTpl.size() >= GRID_COLS * GRID_ROWS) return false;
+            for (ItemStack s : itemTpl) if (ItemStack.isSameItem(s, stack)) return false; // no duplicates
             ItemStack copy = stack.copy();
             copy.setCount(1);
             itemTpl.add(copy);
             syncGhost();
+            return true;
         } else if (chType == Mediums.FLUID) {
             // 流体频道里丢进来的物品按容器处理：能倒出流体就当作流体模板
-            addFluidMarker(FluidUtil.getFluidContained(stack).orElse(FluidStack.EMPTY));
+            return addFluidMarker(FluidUtil.getFluidContained(stack).orElse(FluidStack.EMPTY));
         }
+        return false;
     }
 
     /**
      * 直接加一条流体模板。JEI 的流体条目交过来的是 FluidStack 本身（不是装满的桶），
      * 所以流体拖拽必须走这里，不能再绕 addMarker(ItemStack)。
+     *
+     * @return 是否真的写入了流体模板。
      */
-    public void addFluidMarker(FluidStack fs) {
-        if (fs == null || fs.isEmpty()) return;
-        if (fluidTpl.size() >= GRID_COLS * GRID_ROWS) return;
-        for (FluidStack f : fluidTpl) if (f.getFluid() == fs.getFluid()) return;   // no duplicates
+    public boolean addFluidMarker(FluidStack fs) {
+        if (fs == null || fs.isEmpty()) return false;
+        if (fluidTpl.size() >= GRID_COLS * GRID_ROWS) return false;
+        for (FluidStack f : fluidTpl) if (f.getFluid() == fs.getFluid()) return false;   // no duplicates
         fluidTpl.add(new FluidStack(fs.getFluid(), 1000));
         syncGhost();
+        return true;
     }
 
     /** Mirror the template lists into the ghost container so vanilla renders them in the marker slots. */
-    private void syncGhost() {
+    public void syncGhost() {
         for (int i = 0; i < GRID_COLS * GRID_ROWS; i++) {
             ItemStack show = ItemStack.EMPTY;
             if (chType == Mediums.ITEM && i < itemTpl.size()) {
@@ -199,47 +235,61 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         int x = leftPos, y = topPos;
         syncGhost();
 
+        // 导航行：取消（左）· 完成（右），均为无边框文本钮（规格 §3）
+        String cancelLabel = Lang.t(Lang.UI_CANCEL).getString();
+        String doneLabel = Lang.t(Lang.UI_DONE).getString();
+        int bw = Math.max(this.font.width(cancelLabel), this.font.width(doneLabel)) + 8;
         addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_CANCEL), b -> onClose())
-                .bounds(x + 88, y + 4, 38, 14)));
-        addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DONE).withStyle(ChatFormatting.GREEN), b -> finish())
-                .bounds(x + 130, y + 4, 38, 14)));
+                .bounds(x + 4, y + NAV_Y + (NAV_H - CTL_H) / 2, bw, CTL_H)).setStyle(P2PFlatButton.Style.TEXT));
+        addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DONE), b -> finish())
+                .bounds(x + imageWidth - 4 - bw, y + NAV_Y + (NAV_H - CTL_H) / 2, bw, CTL_H))
+                .setStyle(P2PFlatButton.Style.TEXT));
 
-        // 三个标签页：物品模板 / 标签 / NBT。说明文字全部放进 tooltip，不再常驻占用界面。
-        btnItem = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_TAB_ITEM), b -> setPage(Page.ITEM)).bounds(x + 4, y + ROW_TAB, 54, 16)));
-        btnTag  = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_TAB_TAG), b -> setPage(Page.TAG)).bounds(x + 60, y + ROW_TAB, 54, 16)));
-        btnNbt  = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_TAB_NBT), b -> setPage(Page.NBT)).bounds(x + 116, y + ROW_TAB, 54, 16)));
+        // segmented 页签：物品 / 标签 / NBT。说明文字全部放进 tooltip，不常驻占用界面。
+        btnItem = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_TAB_ITEM), b -> setPage(Page.ITEM))
+                .bounds(x + CARD_X, y + SEG_Y, SEG_CELL, SEG_H)).setStyle(P2PFlatButton.Style.SEGMENT));
+        btnTag  = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_TAB_TAG), b -> setPage(Page.TAG))
+                .bounds(x + CARD_X + SEG_CELL, y + SEG_Y, SEG_CELL, SEG_H)).setStyle(P2PFlatButton.Style.SEGMENT));
+        btnNbt  = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_TAB_NBT), b -> setPage(Page.NBT))
+                .bounds(x + CARD_X + SEG_CELL * 2, y + SEG_Y, SEG_CELL, SEG_H)).setStyle(P2PFlatButton.Style.SEGMENT));
         btnItem.setTooltip(Tooltip.create(Lang.t(chType == Mediums.FLUID ? Lang.UI_FLUID_HINT : Lang.UI_ITEM_HINT)));
         btnTag.setTooltip(Tooltip.create(Lang.t(Lang.UI_TAG_TIP)));
         btnNbt.setTooltip(Tooltip.create(Lang.t(Lang.UI_NBT_REGEX_HINT)));
 
         if (chType == Mediums.ITEM) {
-            // whitelist/blacklist toggle (governs items AND tags) — shown on ITEM and TAG pages
+            int ctlY = y + ROW_CTL;
+            // 白/黑名单（同时作用于物品与标签）— ITEM / TAG 页显示
             modeBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_MODE, modeLabel()), b -> {
                 mode = (mode == Filter.Mode.WHITELIST ? Filter.Mode.BLACKLIST : Filter.Mode.WHITELIST);
                 b.setMessage(Lang.t(Lang.UI_MODE, modeLabel()));
-            }).bounds(x + 8, y + ROW_MODE, 158, 16)));
+            }).bounds(x + CARD_X, y + ROW_MODE, CARD_W, CTL_H)));
 
-            // strict-NBT toggle — shown on ITEM and NBT pages
+            // 严格 NBT 开关 — ITEM / NBT 页显示，右对齐（规格 §3：iOS toggle）
             nbtBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_NBT_SWITCH, nbtLabel()), b -> {
                 matchNBT = !matchNBT;
                 b.setMessage(Lang.t(Lang.UI_NBT_SWITCH, nbtLabel()));
-            }).bounds(x + 92, y + ROW_CTL, 76, 16)));
+                ((P2PFlatButton) b).setSelected(matchNBT);
+            }).bounds(x + CARD_X + CARD_W - 108, ctlY, 108, CTL_H)).setStyle(P2PFlatButton.Style.TOGGLE));
+            nbtBtn.setSelected(matchNBT);
 
-            // TAG page: a tag text box + add button (only visible on the TAG page)
-            tagBox = new EditBox(this.font, x + 9, y + ROW_CTL + 1, 106, 14, Lang.t(Lang.UI_TAG_HINT));
+            // TAG 页：标签输入框 + 加标签钮（只在 TAG 页显示）
+            tagBox = new EditBox(this.font, x + CARD_X + 4, ctlY + 1, 100, 12, Lang.t(Lang.UI_TAG_HINT));
+            tagBox.setBordered(false);
+            tagBox.setTextColor(P2PTheme.TEXT_PRIMARY);
             tagBox.setMaxLength(64);
             tagBox.setHint(Lang.t(Lang.UI_TAG_PLACEHOLDER));
             addRenderableWidget(tagBox);
             addTagBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_ADD_TAG), b -> addTagFromBox())
-                    .bounds(x + 118, y + ROW_CTL, 50, 16)));
+                    .bounds(x + CARD_X + 108, ctlY, 60, CTL_H)));
 
-            // NBT page: a large multi-line editor (only drawn on the NBT page)
+            // NBT 页：多行编辑器（只在 NBT 页绘制）
             nbtEdit = new MultilineEdit(this.font, x + NBT_X, y + NBT_Y, NBT_W, NBT_H);
             nbtEdit.setValue(nbtRegex);
         } else {
             modeBtn = null; nbtBtn = null; tagBox = null; addTagBtn = null; nbtEdit = null;
         }
         applyPage();
+        if (pageExt != null) pageExt.onInit(pageCtx);   // resize-safe: re-registers extension widgets
     }
 
     /** 切换到指定标签页，并刷新各控件的可见性。 */
@@ -261,7 +311,7 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         if (page != Page.TAG) tagHits.clear();               // stale rows must not eat clicks on other pages
         // deactivate every slot off the ITEM page so the grid/inventory never renders or captures clicks
         setSlotsActive(itemPage && chType != Mediums.ENERGY, itemPage);
-        // 选中态由按钮自身渲染（蓝底 + 下划线），不再用 "▶ " 前缀
+        // 选中态由 segmented 自己画（白底 + TINT 字），不再用 "▶ " 前缀
         btnItem.setSelected(page == Page.ITEM);
         btnTag.setSelected(page == Page.TAG);
         btnNbt.setSelected(page == Page.NBT);
@@ -286,80 +336,65 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     }
 
     private void finish() {
+        if (pageExt != null && pageExt.finish(pageCtx)) return;   // extension committed and closed itself
         if (nbtEdit != null) nbtRegex = nbtEdit.getValue().trim();
         Filter f;
         if (chType == Mediums.ENERGY) f = Filter.energyPass();
         else if (chType == Mediums.ITEM) f = Filter.itemFilter(mode, matchNBT, itemTpl, itemTags, nbtRegex);
         else f = Filter.fluidFilter(mode, fluidTpl);
         CompoundTag tag = f.serializeNBT();
-        ModMessages.INSTANCE.sendToServer(new ChannelActionC2SPacket(channelId,
+        ModMessages.sendToServer(new ChannelActionC2SPacket(channelId,
                 ChannelActionC2SPacket.Action.SET_FILTER, null, 0, member.key(), extract, tag, ""));
         minecraft.setScreen(parent);
     }
 
     // ============================================================ rendering
+    /**
+     * 1.20.1：{@link AbstractContainerScreen#render} 不会先调 renderBackground，而是先调
+     * {@link #renderBg}——所以遮罩 + 白卡在这里画（等价于 1.21.1 版的 renderBackground 覆盖）。
+     */
     @Override
     protected void renderBg(GuiGraphics gg, float pt, int mx, int my) {
-        // 1.20.1: Screen.render() does NOT dim the background for us — do it here, where it is guaranteed to run.
-        this.renderBackground(gg);
+        gg.fill(0, 0, this.width, this.height, P2PTheme.BG_OVERLAY);
         int x = leftPos, y = topPos;
-        // where the vanilla "blank band" tiling starts: right below the marker rows (ITEM) or below the dark panel
-        int stripTop = (page == Page.ITEM) ? 76 : PANEL_BOTTOM;
-        if (page == Page.ITEM) {
-            // top part: title bar + the 3x9 marker rows (vanilla texture y 0..76)
-            gg.blit(BG, x, y, 0, 0, imageWidth, 76, TEX_W, TEX_H);
-        } else {
-            // non-ITEM page: paint a plain panel over the whole content region (no baked slot squares)
-            gg.fill(x, y, x + imageWidth, y + stripTop, STONE);
-            gg.fill(x, y, x + imageWidth, y + 1, HI);
-            gg.fill(x, y, x + 1, y + stripTop, HI);
-            gg.fill(x, y + stripTop - 1, x + imageWidth, y + stripTop, SH);
-            gg.fill(x + imageWidth - 1, y, x + imageWidth, y + stripTop, SH);
-        }
-        // inserted blank strip: tile the empty band of the vanilla texture (y 73..81)
-        int filled = 0, stripH = 76 + EXTRA - stripTop;
-        while (filled < stripH) {
-            int h = Math.min(8, stripH - filled);
-            gg.blit(BG, x, y + stripTop + filled, 0, 73, imageWidth, h, TEX_W, TEX_H);
-            filled += h;
-        }
-        // bottom part: inventory label band + inventory + hotbar + frame (vanilla texture y 76..166)
-        gg.blit(BG, x, y + 76 + EXTRA, 0, 76, imageWidth, VANILLA_H - 76, TEX_W, TEX_H);
+        P2PTheme.drawRoundRect(gg, x, y, imageWidth, imageHeight, P2PTheme.R_DIALOG, P2PTheme.CARD);
+        // segmented 轨道（页签底）在 init 的按钮之下，先画轨道再画内容底板
+        P2PTheme.segmentedTrack(gg, x + CARD_X, y + SEG_Y, CARD_W, SEG_H);
+        P2PTheme.plate(gg, x + CARD_X, y + CONTENT_Y, CARD_W, CONTENT_BOTTOM - CONTENT_Y);
+        if (page == Page.TAG && tagBox != null && tagBox.visible)
+            P2PTheme.field(gg, x + CARD_X, y + ROW_CTL, 108, CTL_H);
+        // 槽位井：只给激活中的槽画（TAG/NBT 页所有槽置灰，因此不会泄漏到别的页）
+        for (Slot s : menu.slots) if (s.isActive()) P2PTheme.slotWell(gg, x + s.x, y + s.y);
     }
 
     @Override
     public void render(GuiGraphics gg, int mx, int my, float pt) {
         super.render(gg, mx, my, pt);
-        if (page != Page.ITEM) {
-            // cover the (now inactive) inventory region so no baked slot boxes leak through
-            gg.fill(leftPos, topPos + 160, leftPos + imageWidth, topPos + imageHeight, STONE);
-            if (page == Page.TAG) drawTagPage(gg);
-            else drawNbtPage(gg);
-        }
-        // tooltips for the strip widgets are drawn by super.render(); nothing custom to add here
+        if (page == Page.TAG) drawTagPage(gg);
+        else if (page == Page.NBT) drawNbtPage(gg);
+        if (pageExt != null) pageExt.renderOverlay(pageCtx, gg, mx, my);
+        // 控件 tooltip 由 super.render 负责，这里没有额外浮层
     }
 
     @Override
     protected void renderLabels(GuiGraphics gg, int mx, int my) {
-        // ITEM page keeps the vanilla beige texture (dark ink); TAG/NBT pages are a dark panel (light ink).
-        boolean itemPage = (page == Page.ITEM);
-        gg.drawString(this.font, this.title, this.titleLabelX, this.titleLabelY,
-                itemPage ? 0xFF404040 : P2PGuiTextures.TITLE, false);
-        // the player inventory only exists on the ITEM page — do not leave an orphan "物品栏" label behind
-        if (itemPage) gg.drawString(this.font, this.playerInventoryTitle, this.inventoryLabelX, this.inventoryLabelY, 0xFF404040, false);
-        if (chType == Mediums.ENERGY && itemPage) {
-            gg.fill(GRID_X, GRID_Y, GRID_X + GRID_COLS * SLOT, GRID_Y + GRID_ROWS * SLOT, 0xC0262A30);
-            gg.drawString(this.font, Lang.t(Lang.UI_ENERGY_NOTE), GRID_X + 4, GRID_Y + 22, 0xFFC0C6CC, false);
-        }
-        // no permanent "拖入网格 / 点击格子删除" line any more: it lives in the 物品 tab's tooltip
+        // 坐标已平移 leftPos/topPos，这里全部用面板内坐标
+        P2PTheme.drawStringBold(gg, this.font, this.title, (imageWidth - this.font.width(this.title)) / 2,
+                NAV_Y + (NAV_H - 8) / 2, P2PTheme.TEXT_PRIMARY);
+        // 玩家背包只在 ITEM 页存在 — 别留下孤立的「物品栏」标题
+        if (page == Page.ITEM && chType != Mediums.ENERGY)
+            gg.drawString(this.font, this.playerInventoryTitle, CARD_X, INV_LABEL_Y, P2PTheme.TEXT_SECOND, false);
+        if (chType == Mediums.ENERGY && page == Page.ITEM)
+            P2PTheme.drawCentered(gg, this.font, Lang.t(Lang.UI_ENERGY_NOTE), CARD_X,
+                    CONTENT_Y + (CONTENT_BOTTOM - CONTENT_Y - 8) / 2, CARD_W, P2PTheme.TEXT_SECOND);
+        // 「拖入网格 / 点击格子删除」不再常驻：它在 物品 页签的 tooltip 里
     }
 
-    /** TAG page: a scrollable vertical tag list (many rows) + the add box lives in the strip. */
+    /** TAG page: a scrollable vertical tag list (many rows) + the add box lives in the control row. */
     private void drawTagPage(GuiGraphics gg) {
         if (chType != Mediums.ITEM) { drawTypeOnlyNote(gg); return; }
         int x0 = leftPos + TAG_X, y0 = topPos + TAG_Y;
-        int listH = TAG_LIST_H;
-        int visible = listH / TAG_ROW_H;
+        int visible = TAG_LIST_H / TAG_ROW_H;
         tagHits.clear();
         int maxScroll = Math.max(0, itemTags.size() - visible);
         if (tagScroll > maxScroll) tagScroll = maxScroll;
@@ -367,36 +402,34 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         for (int i = tagScroll; i < itemTags.size() && i - tagScroll < visible; i++) {
             int ry = y0 + (i - tagScroll) * TAG_ROW_H;
             String s = "#" + itemTags.get(i);
-            gg.fill(x0, ry, x0 + TAG_W, ry + TAG_ROW_H - 1, P2PGuiTextures.ROW_BG2);
-            gg.fill(x0, ry, x0 + TAG_W, ry + 1, P2PGuiTextures.FAUX_HI);
-            gg.fill(x0, ry, x0 + 1, ry + TAG_ROW_H - 1, P2PGuiTextures.FAUX_HI);
-            gg.fill(x0 + TAG_W - 1, ry, x0 + TAG_W, ry + TAG_ROW_H - 1, P2PGuiTextures.FAUX_SH);
-            gg.fill(x0 + TAG_W - 13, ry, x0 + TAG_W - 12, ry + TAG_ROW_H - 1, P2PGuiTextures.DANGER); // × column
-            gg.drawString(this.font, Component.literal(trim(s, TAG_W - 20)), x0 + 4, ry + 2, 0xFFE0E0E0, false);
-            gg.drawString(this.font, Component.literal("×"), x0 + TAG_W - 11, ry + 2, 0xFFFFFFFF, false);
+            P2PTheme.drawRoundRect(gg, x0, ry, TAG_W, TAG_ROW_H - 1, P2PTheme.R_SLOT, P2PTheme.CARD);
+            P2PTheme.deleteCross(gg, x0 + TAG_W - P2PTheme.CIRCLE - 1, ry + 1, false);
+            gg.drawString(this.font, Component.literal(trim(s, TAG_W - P2PTheme.CIRCLE - 8)),
+                    x0 + 4, ry + 5, P2PTheme.TEXT_PRIMARY, false);
             tagHits.add(new TagHit(i, x0, ry, TAG_W, TAG_ROW_H - 1));
         }
         if (itemTags.isEmpty())
-            gg.drawString(this.font, Lang.t(Lang.UI_TAG_EMPTY), x0, y0 + 4, 0xFF6a6a6a, false);
-        // simple scrollbar
-        if (maxScroll > 0) {
-            int barX = x0 + TAG_W + 1;
-            int barH = listH;
-            gg.fill(barX, y0, barX + 3, y0 + barH, 0xFF5A6068);
-            int thumbH = Math.max(8, barH * visible / itemTags.size());
-            int thumbY = y0 + (barH - thumbH) * tagScroll / maxScroll;
-            gg.fill(barX, thumbY, barX + 3, thumbY + thumbH, 0xFF2A2E34);
-        }
+            P2PTheme.drawCentered(gg, this.font, Lang.t(Lang.UI_TAG_EMPTY), x0, y0 + TAG_LIST_H / 2 - 4, TAG_W, P2PTheme.TEXT_TERT);
+        if (maxScroll > 0) drawScrollbar(gg, x0 + TAG_W + 1, y0, TAG_LIST_H, visible, itemTags.size(), tagScroll, maxScroll);
     }
 
-    /** NBT page: the large multi-line editor. The strict-NBT toggle lives in the strip. */
+    /** NBT page: the large multi-line editor. The strict-NBT toggle lives in the control row. */
     private void drawNbtPage(GuiGraphics gg) {
         if (chType != Mediums.ITEM) { drawTypeOnlyNote(gg); return; }
         if (nbtEdit != null) nbtEdit.render(gg);   // 正则示例见 NBT 页签 tooltip，不再常驻一行提示
     }
 
     private void drawTypeOnlyNote(GuiGraphics gg) {
-        gg.drawString(this.font, Lang.t(Lang.UI_FILTER_TYPE_ONLY), leftPos + 8, topPos + 40, 0xFFC0C6CC, false);
+        P2PTheme.drawCentered(gg, this.font, Lang.t(Lang.UI_FILTER_TYPE_ONLY), leftPos + CARD_X,
+                topPos + CONTENT_Y + (CONTENT_BOTTOM - CONTENT_Y - 8) / 2, CARD_W, P2PTheme.TEXT_SECOND);
+    }
+
+    /** SEPARATOR 轨道 + TEXT_TERT 滑块，3px 宽。 */
+    private static void drawScrollbar(GuiGraphics gg, int x, int y, int h, int visible, int total, int scroll, int maxScroll) {
+        gg.fill(x, y, x + 3, y + h, P2PTheme.SEPARATOR);
+        int thumbH = Math.max(8, h * visible / total);
+        int thumbY = y + (h - thumbH) * scroll / maxScroll;
+        P2PTheme.drawRoundRect(gg, x, thumbY, 3, thumbH, 1, P2PTheme.TEXT_TERT);
     }
 
     @Override
@@ -459,12 +492,6 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     @Override
     public boolean isPauseScreen() { return false; }
 
-    private int fluidTint(FluidStack fs) {
-        Fluid fluid = fs.getFluid();
-        if (fluid == Fluids.EMPTY) return 0xFF555555;
-        return IClientFluidTypeExtensions.of(fluid).getTintColor(fs) | 0xFF000000;
-    }
-
     private String trim(String s, int maxPx) {
         if (s == null) return "";
         if (this.font.width(s) <= maxPx) return s;
@@ -482,6 +509,7 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
     @Override
     protected void slotClicked(Slot slot, int slotId, int mouseButton, ClickType clickType) {
         if (slot == null) return;
+        if (pageExt != null && pageExt.slotClicked(pageCtx, slot, slotId, mouseButton, clickType)) return;
         if (page != Page.ITEM) return;   // off the ITEM page the grid is inert
         if (slot.container == this.menu.ghost) {
             int idx = slot.getSlotIndex();
@@ -536,12 +564,8 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
         }
 
         void render(GuiGraphics gg) {
-            gg.fill(x, y, x + w, y + h, 0xFF0a0a0a);
-            gg.fill(x, y, x + w, y + 1, 0xFF555555);
-            gg.fill(x, y, x + 1, y + h, 0xFF555555);
-            gg.fill(x + w - 1, y, x + w, y + h, 0xFF222222);
-            gg.fill(x, y + h - 1, x + w, y + h, 0xFF222222);
-            int rowsPerScreen = Math.max(1, h / lineH);
+            P2PTheme.drawRoundRect(gg, x, y, w, h, P2PTheme.R_SLOT, P2PTheme.FIELD_BG);
+            int rowsPerScreen = Math.max(1, (h - 4) / lineH);
             List<int[]> visual = new ArrayList<>();
             List<int[]> meta = new ArrayList<>();   // {lineIndex, segStart, segEnd}
             for (int li = 0; li < lines.size(); li++) {
@@ -564,35 +588,30 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
                 else if (caretRow >= scroll + rowsPerScreen) scroll = caretRow - rowsPerScreen + 1;
             }
             scroll = Math.max(0, Math.min(maxScroll, scroll));
+            gg.enableScissor(x, y, x + w, y + h);
             for (int r = scroll; r < visual.size() && r - scroll < rowsPerScreen; r++) {
                 int[] seg = visual.get(r);
                 int[] m = meta.get(r);
                 String txt = lines.get(m[0]).substring(seg[0], seg[1]);
                 int ry = y + 2 + (r - scroll) * lineH;
-                gg.drawString(font, Component.literal(txt), x + 3, ry, 0xFFe0e0e0, false);
+                gg.drawString(font, Component.literal(txt), x + 3, ry, P2PTheme.TEXT_PRIMARY, false);
             }
             if (focused && caretRow >= scroll && caretRow < scroll + rowsPerScreen && !meta.isEmpty()) {
                 int[] m = meta.get(Math.min(caretRow, meta.size() - 1));
                 String pre = lines.get(m[0]).substring(m[1], Math.min(caretCol, m[2]));
                 int cx = x + 3 + font.width(pre);
                 int ry = y + 2 + (caretRow - scroll) * lineH;
-                gg.fill(cx, ry - 1, cx + 1, ry + lineH - 1, 0xFFFFFFFF);
+                gg.fill(cx, ry - 1, cx + 1, ry + lineH - 1, P2PTheme.TEXT_PRIMARY);
             }
-            if (maxScroll > 0) {
-                int barX = x + w + 1;
-                int thumbH = Math.max(8, h * rowsPerScreen / visual.size());
-                int thumbY = y + (h - thumbH) * scroll / maxScroll;
-                gg.fill(barX, y, barX + 3, y + h, 0xFF8b8b8b);
-                gg.fill(barX, thumbY, barX + 3, thumbY + thumbH, 0xFF5A6068);
-            }
+            gg.disableScissor();
+            if (maxScroll > 0)
+                drawScrollbar(gg, x + w + 1, y, h, rowsPerScreen, visual.size(), scroll, maxScroll);
         }
 
         boolean mouseClicked(double mx, double my, int b) {
             if (!isOver(mx, my)) { focused = false; return false; }
             focused = true;
-            int rowsPerScreen = h / lineH;
             int r = (int) ((my - y - 2) / lineH) + scroll;
-            int maxScroll = Math.max(0, totalVisual() - rowsPerScreen);
             if (r < 0 || r >= totalVisual()) { caretLine = Math.max(0, lines.size() - 1); caretCol = lines.get(caretLine).length(); return true; }
             // map visual row r -> logical line + column
             int acc = 0, li = 0;
@@ -687,8 +706,9 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
 
     // ============================================================ client-only menu
     /**
-     * Client-side-only menu: gives the screen genuine vanilla slots (so vanilla draws slot backgrounds,
+     * Client-side-only menu: gives the screen genuine vanilla slots (so vanilla draws slot contents,
      * highlights and tooltips, and JEI sees a container GUI) while forbidding every real interaction.
+     * Slot 坐标语义未变；换肤只影响 {@link #renderBg} 画的槽位井。
      */
     public static class FilterMenu extends AbstractContainerMenu {
         public final SimpleContainer ghost = new SimpleContainer(GRID_COLS * GRID_ROWS);
@@ -702,9 +722,9 @@ public class FilterEditor extends AbstractContainerScreen<FilterEditor.FilterMen
             }
             for (int row = 0; row < 3; row++)
                 for (int col = 0; col < 9; col++)
-                    addSlot(new ReadOnlySlot(inv, 9 + row * 9 + col, GRID_X + col * SLOT, INV_Y + row * SLOT, true));
+                    addSlot(new ReadOnlySlot(inv, 9 + row * 9 + col, INV_X + col * SLOT, INV_Y + row * SLOT, true));
             for (int col = 0; col < 9; col++)
-                addSlot(new ReadOnlySlot(inv, col, GRID_X + col * SLOT, HOTBAR_Y, true));
+                addSlot(new ReadOnlySlot(inv, col, INV_X + col * SLOT, HOTBAR_Y, true));
         }
 
         @Override public ItemStack quickMoveStack(Player player, int index) { return ItemStack.EMPTY; }

@@ -58,6 +58,8 @@ repositories {
     maven { url = 'https://maven.blamejared.com' }
     maven { url = 'https://maven.createmod.net' }
     maven { url = 'https://www.cursemaven.com' }
+    // Local EMI 1.20.1 jar (compile-only; ghost-drag into the filter editor marker grid)
+    flatDir { dirs "${projectDir}/libs" }
 }
 
 dependencies {
@@ -67,6 +69,9 @@ dependencies {
     // JEI API (compile-only; ghost ingredient drag in the filter editor). Runtime provided by the player's JEI install.
     compileOnly fg.deobf("mezz.jei:jei-${jei_minecraft_version}-common-api:${jei_version}")
     compileOnly fg.deobf("mezz.jei:jei-${jei_minecraft_version}-forge-api:${jei_version}")
+
+    // EMI API (compile-only; drag-drop into the filter editor marker grid). Runtime provided by the player's EMI install.
+    compileOnly fg.deobf("emi:emi:${emi_version}")
 }
 
 // Expand declared replace properties in the mods.toml / pack.mcmeta.

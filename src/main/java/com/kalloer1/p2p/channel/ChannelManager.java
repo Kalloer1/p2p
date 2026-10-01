@@ -2,6 +2,9 @@ package com.kalloer1.p2p.channel;
 
 import com.kalloer1.p2p.Lang;
 import com.kalloer1.p2p.P2P;
+import com.kalloer1.p2p.api.ChannelDeletedEvent;
+import com.kalloer1.p2p.api.ChannelMembersChangedEvent;
+import com.kalloer1.p2p.api.ChannelSyncedEvent;
 import com.kalloer1.p2p.medium.Medium;
 import com.kalloer1.p2p.network.ChannelSyncS2CPacket;
 import com.kalloer1.p2p.network.ModMessages;
@@ -22,7 +25,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.saveddata.SavedData;
-import net.minecraftforge.network.PacketDistributor;
+import net.minecraftforge.common.MinecraftForge;
 
 import java.util.ArrayList;
 import java.util.ArrayDeque;
@@ -36,7 +39,7 @@ import java.util.Set;
 
 /**
  * Server-side authority for all channels, groups and networks.
- * One logical store per world, persisted on the OVERWORLD level via Forge SavedData, so everything
+ * One logical store per world, persisted on the OVERWORLD level via SavedData, so everything
  * (networks / channels / bound endpoints / filters) survives a game restart. The static INSTANCE is
  * replaced with the loaded SavedData on ServerStartedEvent.
  */
@@ -205,9 +208,13 @@ public class ChannelManager extends SavedData {
     /** Delete = remove routing only. World endpoints keep their inventories; nothing is lost. */
     public void deleteChannel(int id) {
         Channel c = channels.remove(id);
-        if (c != null && c.groupId >= 0) {
-            Group g = groups.get(c.groupId);
-            if (g != null) g.channelIds.remove((Integer) id);
+        if (c != null) {
+            if (c.groupId >= 0) {
+                Group g = groups.get(c.groupId);
+                if (g != null) g.channelIds.remove((Integer) id);
+            }
+            // Fire after the group-cascade cleanup so listeners observe the final state.
+            MinecraftForge.EVENT_BUS.post(new ChannelDeletedEvent(c));
         }
         setDirty();
     }
@@ -223,12 +230,21 @@ public class ChannelManager extends SavedData {
         return g;
     }
 
-    /** Delete a group: remove it and detach every channel that belonged to it (groupId -> -1 = ungrouped). */
-    public void deleteGroup(int groupId) {
-        groups.remove(groupId);
+    /**
+     * Delete a group. 1.4.0 语义变更：删除组 = 连带删除组内全部频道（含端点绑定），
+     * 不再把频道"扩散"回无分组状态。级联复用 {@link #deleteChannel(int)} 的既有路径，
+     * 保证 ChannelDeletedEvent 事件派发与组内 channelIds 清理不漏。
+     *
+     * @return 实际删除的频道数量（组不存在返回 0），供聊天回显"已删除分组及其 N 个频道"。
+     */
+    public int deleteGroup(int groupId) {
+        if (groups.remove(groupId) == null) return 0;
+        List<Integer> doomed = new ArrayList<>();
         for (Channel c : channels.values())
-            if (c.groupId == groupId) c.groupId = -1;
+            if (c.groupId == groupId) doomed.add(c.id);
+        for (int id : doomed) deleteChannel(id);
         setDirty();
+        return doomed.size();
     }
 
     /**
@@ -253,16 +269,23 @@ public class ChannelManager extends SavedData {
                 channelId, pos, face, role, bound, dim);
 
         boolean removed = channel.members.removeIf(m -> m.key().equals(key));
+        // 1.3.1：绑定点击结果回显到聊天栏（原来只走 actionbar），并附带当前频道端点总数
         if (removed) {
-            player.displayClientMessage(Lang.t(Lang.MSG_ENDPOINT_REMOVED, channelId).withStyle(ChatFormatting.YELLOW), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_ENDPOINT_REMOVED, channelId)
+                    .append(Lang.t(Lang.MSG_ENDPOINT_TOTAL, channel.members.size()))
+                    .withStyle(ChatFormatting.YELLOW), false);
         } else {
             // 绑定这一刻区块必定已加载，把方块 id 一起记下来，GUI 才能给跨维度端点画图标
             channel.members.add(new Member(dim, pos, face, role, null, null, 0, BuiltInRegistries.BLOCK.getKey(bound)));
             Component roleStr = role == Role.INPUT ? Lang.t(Lang.MSG_ROLE_IN) : Lang.t(Lang.MSG_ROLE_OUT);
-            player.displayClientMessage(Lang.t(Lang.MSG_ENDPOINT_ADDED, channelId, roleStr).withStyle(ChatFormatting.GREEN), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_ENDPOINT_ADDED, channelId, roleStr)
+                    .append(Lang.t(Lang.MSG_ENDPOINT_TOTAL, channel.members.size()))
+                    .withStyle(ChatFormatting.GREEN), false);
         }
         P2P.LOGGER.info("[p2p] toggleEndpoint result: channel={} members={} removed={}", channelId, channel.members.size(), removed);
         setDirty();
+        MinecraftForge.EVENT_BUS.post(new ChannelMembersChangedEvent(player, level, channel,
+                ChannelMembersChangedEvent.ChangeKind.ENDPOINT_TOGGLE));
         pushSync(player);
     }
 
@@ -310,11 +333,17 @@ public class ChannelManager extends SavedData {
             }
         }
         if (added == 0)
-            player.displayClientMessage(Lang.t(Lang.MSG_CHAIN_NONE).withStyle(ChatFormatting.YELLOW), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_CHAIN_NONE).withStyle(ChatFormatting.YELLOW), false);
         else
-            player.displayClientMessage(Lang.t(Lang.MSG_CHAIN_ADDED, added, channelId).withStyle(ChatFormatting.GREEN), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_CHAIN_ADDED, added, channelId)
+                    .append(Lang.t(Lang.MSG_ENDPOINT_TOTAL, channel.members.size()))
+                    .withStyle(ChatFormatting.GREEN), false);
         P2P.LOGGER.info("[p2p] bindChain result: added={} target={} channel={}", added, target, channelId);
-        setDirty();
+        if (added > 0) {
+            setDirty();
+            MinecraftForge.EVENT_BUS.post(new ChannelMembersChangedEvent(player, level, channel,
+                    ChannelMembersChangedEvent.ChangeKind.CHAIN_BIND));
+        }
         pushSync(player);
         return added;
     }
@@ -351,11 +380,17 @@ public class ChannelManager extends SavedData {
             }
         }
         if (removed == 0)
-            player.displayClientMessage(Lang.t(Lang.MSG_UNCHAIN_NONE).withStyle(ChatFormatting.YELLOW), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_UNCHAIN_NONE).withStyle(ChatFormatting.YELLOW), false);
         else
-            player.displayClientMessage(Lang.t(Lang.MSG_UNCHAIN_REMOVED, removed).withStyle(ChatFormatting.YELLOW), true);
+            player.displayClientMessage(Lang.t(Lang.MSG_UNCHAIN_REMOVED, removed)
+                    .append(Lang.t(Lang.MSG_ENDPOINT_TOTAL, channel.members.size()))
+                    .withStyle(ChatFormatting.YELLOW), false);
         P2P.LOGGER.info("[p2p] unbindChain result: removed={} target={} channel={}", removed, target, channelId);
-        if (removed > 0) setDirty();
+        if (removed > 0) {
+            setDirty();
+            MinecraftForge.EVENT_BUS.post(new ChannelMembersChangedEvent(player, level, channel,
+                    ChannelMembersChangedEvent.ChangeKind.CHAIN_UNBIND));
+        }
         pushSync(player);
         return removed;
     }
@@ -374,11 +409,18 @@ public class ChannelManager extends SavedData {
             ResourceKey<Level> key = ResourceKey.create(Registries.DIMENSION, m.dim);
             ServerLevel lvl = server.getLevel(key);
             if (lvl == null) return false;
+            // 与客户端三态对齐：只清理"已加载且为空气"的端点；
+            // 未加载区块不同步加载判定（避免触发磁盘/生成加载，也不清状态未知端点）。
+            if (!lvl.isLoaded(m.pos)) return false;
             return lvl.getBlockState(m.pos).isAir();
         });
         int removed = before - channel.members.size();
         P2P.LOGGER.info("[p2p] removeAirMembers: channel={} before={} after={}", channelId, before, channel.members.size());
-        if (removed > 0) setDirty();
+        if (removed > 0) {
+            setDirty();
+            MinecraftForge.EVENT_BUS.post(new ChannelMembersChangedEvent(player, player.level(), channel,
+                    ChannelMembersChangedEvent.ChangeKind.CLEAN_AIR));
+        }
         return removed;
     }
 
@@ -387,8 +429,7 @@ public class ChannelManager extends SavedData {
      * batch-unbind) so the client's overlay (bound-face glow) refreshes in real time without reopening the GUI.
      */
     public void pushSync(ServerPlayer player) {
-        ModMessages.INSTANCE.send(PacketDistributor.PLAYER.with(() -> player),
-                new ChannelSyncS2CPacket(serializeFor(player)));
+        ModMessages.sendToPlayer(player, new ChannelSyncS2CPacket(serializeFor(player)));
     }
 
     /**
@@ -417,7 +458,11 @@ public class ChannelManager extends SavedData {
         int before = channel.members.size();
         channel.members.removeIf(m -> set.contains(m.pos) && m.dim.equals(dim));
         int removed = before - channel.members.size();
-        if (removed > 0) setDirty();
+        if (removed > 0) {
+            setDirty();
+            MinecraftForge.EVENT_BUS.post(new ChannelMembersChangedEvent(null, level, channel,
+                    ChannelMembersChangedEvent.ChangeKind.BATCH_UNBIND));
+        }
         return removed;
     }
 
@@ -452,6 +497,8 @@ public class ChannelManager extends SavedData {
         root.put("channels", chList);
         // 客户端据此显示"当前绑定频道"，并决定绑定模式下高亮哪个频道
         root.putInt("boundChannel", boundChannel.getOrDefault(uuid, -1));
+        // 所有 S2C 频道快照的共同漏斗：派发搭车通知（附属在此推送自己的附加数据）
+        MinecraftForge.EVENT_BUS.post(new ChannelSyncedEvent(player, root));
         return root;
     }
 

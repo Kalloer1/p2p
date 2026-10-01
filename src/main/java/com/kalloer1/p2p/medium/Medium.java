@@ -12,7 +12,10 @@ import java.util.Map;
 
 /**
  * 一种可传输的介质：频道的"类型"。由主模组（item/fluid/energy）或附属（mekanism:gas 等）
- * 通过 {@link RegisterMediumEvent} 注册到 {@link Mediums}。
+ * 注册到 {@link Mediums}。
+ *
+ * <p>附属注册的唯一契约：在自己的 {@code @Mod} 构造函数里直接调用
+ * {@link Mediums#register(Medium)}（注册幂等、构造期调用时机最早最稳；不存在注册事件）。
  *
  * <p>不再是枚举——Java 枚举无法被附属扩展。频道的存档/网络同步里存的是 {@link #id} 字符串；
  * 附属缺失时 {@link Mediums#resolve} 返回"未知介质"占位（不传输、可显示），装回附属即恢复。

@@ -2,13 +2,16 @@ package com.kalloer1.p2p.client.screen;
 
 import com.kalloer1.p2p.Lang;
 import com.kalloer1.p2p.P2P;
+import com.kalloer1.p2p.api.ChannelScreenExtension;
+import com.kalloer1.p2p.api.ChannelScreenExtensions;
+import com.kalloer1.p2p.api.DetailContext;
 import com.kalloer1.p2p.channel.Channel;
+import com.kalloer1.p2p.channel.Filter;
 import com.kalloer1.p2p.channel.Group;
 import com.kalloer1.p2p.channel.Member;
 import com.kalloer1.p2p.channel.Network;
 import com.kalloer1.p2p.channel.Role;
 import com.kalloer1.p2p.client.ClientChannelCache;
-import com.kalloer1.p2p.client.screen.P2PGuiTextures;
 import com.kalloer1.p2p.medium.Medium;
 import com.kalloer1.p2p.medium.Mediums;
 import com.kalloer1.p2p.network.ChannelActionC2SPacket;
@@ -16,12 +19,10 @@ import com.kalloer1.p2p.network.ModMessages;
 import com.kalloer1.p2p.network.RequestChannelsC2SPacket;
 import com.kalloer1.p2p.network.SetBindChannelC2SPacket;
 import com.mojang.blaze3d.platform.InputConstants;
-import net.minecraft.ChatFormatting;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -29,7 +30,6 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
@@ -38,6 +38,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -45,22 +46,46 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Pure-client configuration screen (384×208 panel + 16px top tab = 224 total, within the 232px ceiling).
- * Left: search + group tree + named channel list. Right: selected channel detail with an endpoint table.
- * Endpoints expose a clear "过滤" button (no hidden double-click) and an "⇄" IN/OUT toggle that is sent
+ * Pure-client configuration screen on the 1.2.0 iOS geometry contract: a single 408x240 panel whose first
+ * 20px row is the navigation bar (the 16px top tab strip is gone), a 140-wide channel list on the left,
+ * a 244-wide detail column on the right and a 20px toolbar at the bottom. All sizes come from
+ * .grill-research/ios-ui-spec.md section 4 and are mirrored by {@link DetailContext} for per-medium panels.
+ *
+ * <p>Endpoints expose a clear "过滤" button (no hidden double-click) and an IN/OUT badge that is sent
  * straight to the server (SET_ROLE). The face/direction of an endpoint is world-bound and labelled as such.
- * The top tab shows the current network and lets the player page between visible networks.
  */
 public class ChannelScreen extends Screen {
 
-    private static final int W = 384;
-    private static final int H = 208; // panel; +16 top tab = 224 total, within 232 ceiling
+    private static final int W = 408;
+    private static final int H = 240;
 
-    // ---- palette (MC stone) ----
-    private static final int STONE = P2PGuiTextures.ROW_BG, HI = P2PGuiTextures.FAUX_HI, SH = P2PGuiTextures.FAUX_SH;
-    private static final int LEFT_BG = P2PGuiTextures.ROW_BG, RIGHT_BG = P2PGuiTextures.ROW_BG2, SEL = P2PGuiTextures.SEL, GRP_BG = P2PGuiTextures.GRP_BG, TAB = P2PGuiTextures.TAB_BG;
-    private static final int INK = P2PGuiTextures.INK, INK_DIM = P2PGuiTextures.INK_DIM, TITLE = P2PGuiTextures.TITLE;
-    private static final int IN_C = 0xFFd93a3a, OUT_C = 0xFF3a7ad9; // INPUT=red, OUTPUT=blue
+    // ---- section geometry (ios-ui-spec.md §4) ----
+    private static final int NAV_H = P2PTheme.NAV_H;              // 0..20
+    private static final int BAND_TOP = 20, BAND_H = 14;          // search + config pills: 20..34
+    private static final int LEFT_X = 8, LEFT_W = 140;
+    private static final int RIGHT_X = 156, RIGHT_W = 244;
+    private static final int FRAME_TOP = 44, FRAME_BOTTOM = 204;  // left list + right detail + addon frame
+    // 1.4.0：右栏顶部的频道标题卡整行删除（重命名入口改为左列表双击），释放的 26px 全部给端点表：
+    // 速率卡 44..80，端点表 88..204，端点视口 104..204（加高 26px，可多显示约 1.5 行）。
+    private static final int RATE_TOP = 44, RATE_ROW = 18;        // rate + throttle card (44..80)
+    private static final int TABLE_TOP = 88, TABLE_HEAD = 16;     // endpoint card (88..204)
+    private static final int TOOLBAR_TOP = 212, TOOLBAR_H = P2PTheme.TOOLBAR_H;
+    private static final int ROW_H = P2PTheme.ROW_H;
+
+    // ---- endpoint columns, relative to the card's inner left edge ----
+    // 1.3.0 重排（真机反馈：旧几何里维度短名 25..43 会压进坐标列起点 40，坐标文本与
+    // 「主界」连成一串，表头整体错位）。现列宽重新分配且每列表头对齐本列内容：
+    // 色条 19、短名 26..44、坐标 46..96、面 98..112 居中、徽牌 116..138、
+    // 优先级 142、过滤 164..204、× 208..222（卡内右缘 228，无溢出）。
+    private static final int COL_ICON = 0;
+    private static final int COL_DIM = 19, COL_DIM_W = 4;
+    private static final int COL_DIM_TEXT = 26;
+    private static final int COL_POS = 46, COL_POS_W = 50;
+    private static final int COL_FACE = 98, COL_FACE_W = 14;
+    private static final int COL_ROLE = 116;
+    private static final int COL_PRIORITY = 142, COL_PRIORITY_W = 18;
+    private static final int COL_FILTER = 164, COL_FILTER_W = 40;
+    private static final int COL_DELETE = 208;
 
     private int leftPos, topPos;
     private CompoundTag lastData = null;
@@ -72,8 +97,38 @@ public class ChannelScreen extends Screen {
     private int currentNetId = -1;
 
     private int selectedChannel = -1;
-    private int selectedMember = -1;
     private int selectedGroup = -1;      // selectable group header; 删除组 targets it first
+
+    // ---- 端点选中（1.3.0 新功能，纯 client 端状态） ----
+    /** 多选集合，元素是 {@link Member#key()}；行内控件点击不改选区，只有行的空白区参与选中。 */
+    private final Set<String> selectedEndpoints = new HashSet<>();
+    /** Shift 范围选择的锚点行索引；-1 = 尚未建立锚点。 */
+    private int selAnchor = -1;
+    /** 最后一次交互选中的端点 key（Ctrl+C 复制它的配置；多选时即“最后选中”）。 */
+    private String selLastKey = null;
+
+    // ---- 频道多选（1.4.0 新功能，纯 client 端状态；复用端点选区的失效清理模式） ----
+    /**
+     * 左列表多选集合，元素是 channelId：单击=单选替换、Ctrl+单击=增减、Shift+单击=范围
+     * （锚点为最后单击的频道）、Ctrl+A=全选当前网络可见频道；Esc / 点击列表空白 / 快照
+     * reparse / 切网络时清空。多选后仅「分组」「删除频道」批量生效，其余 pill 仍作用于
+     * 最后选中的频道（{@link #selectedChannel}）。
+     */
+    private final Set<Integer> selectedChannels = new HashSet<>();
+    /** Shift 范围选择的锚点频道 id（= 最后单击的频道）；-1 = 尚未建立锚点。 */
+    private int chAnchorId = -1;
+    /** 左列表双击重命名检测：双击的第一击仍完成选中语义（参照端点行“单击=选中、双击=定位”）。 */
+    private int lastLeftDblId = -1;
+    private long lastLeftDblTime = 0;
+
+    /**
+     * 端点配置剪贴板。static：复制来源允许跨频道（频道 A 复制 → 频道 B 粘贴），且界面
+     * 重开后仍保留；一次 Ctrl+V 的目标永远限定在当前频道内。过滤 tag 是完整序列化结果
+     * （含 addon 段），方向语义以粘贴目标为准。
+     */
+    private static CompoundTag clipFilterTag;
+    private static int clipPriority;
+    private static boolean clipInput;
 
     private final Set<Integer> openGroups = new HashSet<>();
     private EditBox searchBox;
@@ -83,14 +138,16 @@ public class ChannelScreen extends Screen {
 
     private final List<Hit> leftRects = new ArrayList<>();
     private final List<MemberBtn> memberBtns = new ArrayList<>();
-    private final List<PosHit> posHits = new ArrayList<>();
+    /** 双击定位热区：端点行的物品图标 + 维度色条段（1.3.1 从坐标文本挪过来）。单击=选中，双击=跳转定位。 */
+    private final List<JumpHit> jumpHits = new ArrayList<>();
     private final List<BlockHit> blockHits = new ArrayList<>();
     private final List<DimHit> dimHits = new ArrayList<>();
+    /** 面列专属热区：点击循环换面（SET_FACE），与 IN/OUT 徽牌同级的行内控件。 */
     private final List<FaceHit> faceHits = new ArrayList<>();
     private int lastDblIndex = -1;
     private long lastDblTime = 0;
-    private int nameHitX, nameHitY, nameHitW, nameHitH;
-    private boolean nameHitValid = false;
+    /** 当前频道里"已失效"（维度已加载但方块为空气）端点的实时数量，驱动清理按钮显隐。 */
+    private int invalidCount = 0;
     private int netNameHitX, netNameHitW;
     private boolean netNameHitValid = false;
 
@@ -103,56 +160,62 @@ public class ChannelScreen extends Screen {
     @Override
     protected void init() {
         leftPos = (this.width - W) / 2;
-        topPos = (this.height - H) / 2;   // top tab drawn at topPos-16
+        topPos = (this.height - H) / 2;
         // restore the last GUI state across reopen (selected channel/group, expanded groups)
         selectedChannel = ClientChannelCache.INSTANCE.getSelectedChannelId();
         selectedGroup = ClientChannelCache.INSTANCE.getSelectedGroupId();
         openGroups.clear();
         openGroups.addAll(ClientChannelCache.INSTANCE.getOpenGroups());
 
-        int lx = leftPos + 4, lw = 140;
-        searchBox = new EditBox(this.font, lx + 4, topPos + 8, lw - 12, 14, Lang.t(Lang.UI_SEARCH));
+        int lx = leftPos + LEFT_X;
+        searchBox = new EditBox(this.font, lx + 16, topPos + BAND_TOP + 1, LEFT_W - 24, 12, Lang.t(Lang.UI_SEARCH));
         searchBox.setMaxLength(32);
-        searchBox.setBordered(true);
+        searchBox.setBordered(false);
+        searchBox.setTextColor(P2PTheme.TEXT_PRIMARY);
+        searchBox.setHint(Lang.t(Lang.UI_SEARCH));
         addRenderableWidget(searchBox);
 
-        int rx = leftPos + 148, rw = W - 148 - 4;
+        int rx = leftPos + RIGHT_X;
+        int bandY = topPos + BAND_TOP;
         int btnGap = 4;
-        int btnW = (rw - 4 * btnGap) / 5;              // row: 红石/分配/分组/清理空气/区块加载 — five unified buttons
-        redstoneBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_REDSTONE, redstoneLabel(Channel.RedstoneMode.ALWAYS)), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_REDSTONE, 0)).bounds(rx, topPos + 30, btnW, 18)));
-        distBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DISTRIBUTION, distLabel(Channel.Distribution.ROUND_ROBIN)), b -> sendAction(ChannelActionC2SPacket.Action.CYCLE_DISTRIBUTION, 0)).bounds(rx + btnW + btnGap, topPos + 30, btnW, 18)));
-        groupBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_GROUP, groupLabel(-1)), b -> openGroupSelect()).bounds(rx + 2 * (btnW + btnGap), topPos + 30, btnW, 18)));
-        cleanBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_CLEAN_AIR), b -> sendAction(ChannelActionC2SPacket.Action.CLEAN_AIR, 0)).bounds(rx + 3 * (btnW + btnGap), topPos + 30, btnW, 18)));
-        chunkLoadBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_CHUNKLOAD_OFF), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_CHUNKLOAD, 0)).bounds(rx + 4 * (btnW + btnGap), topPos + 30, btnW, 18)));
+        int btnW = (RIGHT_W - 5 * btnGap) / 6;              // row: 介质 + 红石/分配/分组/清理空气/区块加载
+        // spec v1.1：配置 pill 只显短词标签，当前值放 tooltip（drawRight 里逐帧刷新），非默认态 TINT 提亮
+        redstoneBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_PILL_REDSTONE), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_REDSTONE, 0)).bounds(rx, bandY, btnW, BAND_H)));
+        distBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_PILL_DIST), b -> sendAction(ChannelActionC2SPacket.Action.CYCLE_DISTRIBUTION, 0)).bounds(rx + btnW + btnGap, bandY, btnW, BAND_H)));
+        groupBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_PILL_GROUP), b -> openGroupSelect()).bounds(rx + 2 * (btnW + btnGap), bandY, btnW, BAND_H)));
+        cleanBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_PILL_CLEAN), b -> sendAction(ChannelActionC2SPacket.Action.CLEAN_AIR, 0)).bounds(rx + 3 * (btnW + btnGap), bandY, btnW, BAND_H)));
+        chunkLoadBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_PILL_CHUNKLOAD), b -> sendAction(ChannelActionC2SPacket.Action.TOGGLE_CHUNKLOAD, 0)).bounds(rx + 4 * (btnW + btnGap), bandY, btnW, BAND_H)));
+        chunkLoadBtn.setStyle(P2PFlatButton.Style.TOGGLE);
+        // 介质钮留在配置行而不是详情卡里：附属面板接管 44..204 全帧时它仍必须可点。
+        typeBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_MEDIUM), b -> cycleType()).bounds(rx + RIGHT_W - 56, bandY, 56, BAND_H)));
+        typeBtn.setStyle(P2PFlatButton.Style.CHIP);
 
         // rate: editable value + fine step + unit
-        rateEdit = new EditBox(this.font, rx + 24, topPos + 48, 46, 14, Component.literal(""));
+        rateEdit = new EditBox(this.font, rxF() + 48, topPos + RATE_TOP + 3, 30, 12, Component.literal(""));
         rateEdit.setMaxLength(10);
-        rateEdit.setBordered(true);
-        rateEdit.setTextColor(0xFFFFFFFF);
+        rateEdit.setBordered(false);
+        rateEdit.setTextColor(P2PTheme.TEXT_PRIMARY);
         addRenderableWidget(rateEdit);
-        rateDown = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("-"), b -> stepRate(-16)).bounds(rx + 74, topPos + 48, 18, 16)));
-        rateUp = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("+"), b -> stepRate(16)).bounds(rx + 92, topPos + 48, 18, 16)));
-        maxRateBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_RATE_MAX), b -> sendAction(ChannelActionC2SPacket.Action.SET_RATE, ChannelActionC2SPacket.RATE_MAX)).bounds(rx + 112, topPos + 48, 34, 16)));
+        rateDown = stepper("-", b -> stepRate(-16), rxF() + 30, topPos + RATE_TOP + 2);
+        rateUp = stepper("+", b -> stepRate(16), rxF() + 82, topPos + RATE_TOP + 2);
+        maxRateBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_RATE_MAX), b -> sendAction(ChannelActionC2SPacket.Action.SET_RATE, ChannelActionC2SPacket.RATE_MAX)).bounds(rxF() + 100, topPos + RATE_TOP + 2, 28, 14)));
 
         // speed (throttle): how many ticks between passes
-        speedEdit = new EditBox(this.font, rx + 24, topPos + 66, 46, 14, Component.literal(""));
+        speedEdit = new EditBox(this.font, rxF() + 48, topPos + RATE_TOP + RATE_ROW + 3, 30, 12, Component.literal(""));
         speedEdit.setMaxLength(7);
-        speedEdit.setBordered(true);
-        speedEdit.setTextColor(0xFFFFFFFF);
+        speedEdit.setBordered(false);
+        speedEdit.setTextColor(P2PTheme.TEXT_PRIMARY);
         addRenderableWidget(speedEdit);
-        speedDown = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("-"), b -> stepSpeed(-1)).bounds(rx + 74, topPos + 66, 18, 16)));
-        speedUp = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("+"), b -> stepSpeed(1)).bounds(rx + 92, topPos + 66, 18, 16)));
+        speedDown = stepper("-", b -> stepSpeed(-1), rxF() + 30, topPos + RATE_TOP + RATE_ROW + 2);
+        speedUp = stepper("+", b -> stepSpeed(1), rxF() + 82, topPos + RATE_TOP + RATE_ROW + 2);
 
-        bindBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_BIND_CHANNEL), b -> {
-            if (selectedChannel >= 0) ModMessages.INSTANCE.sendToServer(new SetBindChannelC2SPacket(selectedChannel));
-        }).bounds(rx, topPos + H - 22, (rw - 8) / 2, 18)));
-        deleteBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DELETE_CHANNEL).withStyle(ChatFormatting.RED), b -> sendAction(ChannelActionC2SPacket.Action.DELETE, 0)).bounds(rx + (rw - 8) / 2 + 8, topPos + H - 22, (rw - 8) / 2, 18)));
-
-        int btnL = (lw - 2 * btnGap) / 3;              // bottom-left row: 新建频道/新建组/删除组 — unified size
-        createCh = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_NEW_CHANNEL), b -> minecraft.setScreen(new ChannelCreateScreen(this))).bounds(lx, topPos + H - 22, btnL, 18)));
-        createGrp = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_NEW_GROUP), b -> minecraft.setScreen(new NameInputScreen(this, Lang.t(Lang.UI_NEW_GROUP), "", 1, -1, null))).bounds(lx + btnL + btnGap, topPos + H - 22, btnL, 18)));
-        deleteGrpBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_DELETE_GROUP).withStyle(ChatFormatting.RED), b -> {
+        int toolbarY = topPos + TOOLBAR_TOP + (TOOLBAR_H - BAND_H) / 2;
+        bindBtn = addRenderableWidget(textButton(Lang.t(Lang.UI_BIND_CHANNEL), false,
+                b -> { if (selectedChannel >= 0) ModMessages.sendToServer(new SetBindChannelC2SPacket(selectedChannel)); },
+                leftPos + W / 2 - 30, toolbarY));
+        deleteBtn = addRenderableWidget(textButton(Lang.t(Lang.UI_DELETE_CHANNEL), true,
+                b -> deleteSelectedChannels(), leftPos + RIGHT_X + RIGHT_W - 66, toolbarY));
+        deleteGrpBtn = addRenderableWidget(textButton(Lang.t(Lang.UI_DELETE_GROUP), true, b -> {
             int targetGrp = selectedGroup;
             if (targetGrp < 0) {
                 Channel gc = findChannel(selectedChannel);
@@ -163,14 +226,62 @@ public class ChannelScreen extends Screen {
                 selectedGroup = -1;
                 saveUiState();
             }
-        }).bounds(lx + 2 * (btnL + btnGap), topPos + H - 22, btnL, 18)));
+        }, leftPos + RIGHT_X + RIGHT_W - 66 - 54, toolbarY));
 
-        prevNet = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("<"), b -> pageNet(-1)).bounds(leftPos + W - 56, topPos - 16 + 1, 18, 14)));
-        nextNet = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal(">"), b -> pageNet(1)).bounds(leftPos + W - 36, topPos - 16 + 1, 18, 14)));
+        createCh = addRenderableWidget(textButton(Lang.t(Lang.UI_NEW_CHANNEL), false,
+                b -> minecraft.setScreen(new ChannelCreateScreen(this)), lx + 6, toolbarY));
+        createGrp = addRenderableWidget(textButton(Lang.t(Lang.UI_NEW_GROUP), false,
+                b -> minecraft.setScreen(new NameInputScreen(this, Lang.t(Lang.UI_NEW_GROUP), "", 1, -1, null)), lx + 6, toolbarY));
+        layoutToolbar();
 
-        typeBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_MEDIUM), b -> cycleType()).bounds(rx + rw - 70, topPos + 10, 66, 14)));
+        prevNet = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal("<"), b -> pageNet(-1)).bounds(leftPos + W - 8 - 2 * 16, topPos + (NAV_H - 14) / 2, 14, 14)));
+        nextNet = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal(">"), b -> pageNet(1)).bounds(leftPos + W - 8 - 16, topPos + (NAV_H - 14) / 2, 14, 14)));
+        prevNet.setStyle(P2PFlatButton.Style.CIRCLE);
+        nextNet.setStyle(P2PFlatButton.Style.CIRCLE);
 
-        ModMessages.INSTANCE.sendToServer(new RequestChannelsC2SPacket());
+        ModMessages.sendToServer(new RequestChannelsC2SPacket());
+    }
+
+    /** Right column inner content x (8px card padding). */
+    private int rxF() { return leftPos + RIGHT_X + P2PTheme.PAD; }
+
+    private P2PFlatButton stepper(String glyph, Button.OnPress action, int x, int y) {
+        P2PFlatButton b = new P2PFlatButton(Button.builder(Component.literal(glyph), action).bounds(x, y, 14, 14));
+        b.setStyle(P2PFlatButton.Style.STEPPER);
+        return addRenderableWidget(b);
+    }
+
+    private P2PFlatButton textButton(Component label, boolean danger, Button.OnPress action, int x, int y) {
+        P2PFlatButton b = new P2PFlatButton(Button.builder(label, action).bounds(x, y, this.font.width(label) + 12, BAND_H));
+        b.setStyle(P2PFlatButton.Style.TEXT);
+        b.setDanger(danger);
+        return b;
+    }
+
+    /**
+     * Toolbar text buttons are laid out right where they belong: creation on the left, binding centred,
+     * destructive actions right-aligned. Recomputed once because all five labels are static.
+     */
+    private void layoutToolbar() {
+        int y = topPos + TOOLBAR_TOP + (TOOLBAR_H - BAND_H) / 2;
+        int gap = 6;
+        int x = leftPos + LEFT_X + 6;
+        for (P2PFlatButton b : new P2PFlatButton[]{createCh, createGrp}) {
+            int w = this.font.width(b.getMessage()) + 12;
+            b.setX(x); b.setY(y); b.setWidth(w);
+            x += w + gap;
+        }
+        int right = leftPos + RIGHT_X + RIGHT_W - 6;
+        for (P2PFlatButton b : new P2PFlatButton[]{deleteBtn, deleteGrpBtn}) {
+            int w = this.font.width(b.getMessage()) + 12;
+            right -= w;
+            b.setX(right); b.setY(y); b.setWidth(w);
+            right -= gap;
+        }
+        int bw = this.font.width(bindBtn.getMessage()) + 12;
+        bindBtn.setX(leftPos + (W - bw) / 2);
+        bindBtn.setY(y);
+        bindBtn.setWidth(bw);
     }
 
     // ============================================================ data
@@ -210,13 +321,15 @@ public class ChannelScreen extends Screen {
             if (c.networkId == currentNetId) channels.add(c);
         }
         if (findChannel(selectedChannel) == null) selectedChannel = channels.isEmpty() ? -1 : channels.get(0).id;
-                if (selectedGroup >= 0) {
-                    boolean gOk = false;
-                    for (Group g : groups) if (g.id == selectedGroup) { gOk = true; break; }
-                    if (!gOk) selectedGroup = -1;
-                }
-                selectedMember = -1;
-                saveUiState();
+        if (selectedGroup >= 0) {
+            boolean gOk = false;
+            for (Group g : groups) if (g.id == selectedGroup) { gOk = true; break; }
+            if (!gOk) selectedGroup = -1;
+        }
+        // 快照刷新后端点集可能已变（键含坐标/面），旧选区整体失效；频道多选同批清理
+        clearEndpointSelection();
+        clearChannelSelection();
+        saveUiState();
         P2P.LOGGER.info("[p2p] ChannelScreen reparse: nets={} groups={} channels={} currentNet={} selected={}",
                 nets.size(), groups.size(), channels.size(), currentNetId, selectedChannel);
     }
@@ -228,7 +341,7 @@ public class ChannelScreen extends Screen {
         // Draw our own panel directly; do not rely on Screen.renderBackground() dispatch,
         // because some modded environments (Sodium/ModernUI shader/screen mixins) skip or
         // override the standard background path, leaving the panel invisible.
-        drawPanel(gg);
+        drawPanel(gg, (int) mx, (int) my);
         super.render(gg, mx, my, pt);
         // commit rate/speed edits when the box loses focus (clicked elsewhere / switched field)
         if (rateFocusPrev && !rateEdit.isFocused()) commitRate();
@@ -236,9 +349,17 @@ public class ChannelScreen extends Screen {
         rateFocusPrev = rateEdit.isFocused();
         speedFocusPrev = speedEdit.isFocused();
         // dimension tooltip: the row only has room for a 2-char label, so the full id is shown on hover
+        // (1.3.1：附上端点实时状态——已失效 / 未加载未知)
         for (DimHit d : dimHits) {
             if (mx >= d.x && mx <= d.x + d.w && my >= d.y && my <= d.y + d.h) {
-                gg.renderTooltip(this.font, Lang.t(Lang.HUD_DIMENSION, d.dim), mx, my);
+                Component tip;
+                if (d.state == EndpointState.INVALID)
+                    tip = Lang.t(Lang.UI_ENDPOINT_INVALID_TIP).append(" · ").append(Lang.t(Lang.HUD_DIMENSION, d.dim));
+                else if (d.state == EndpointState.UNKNOWN)
+                    tip = Lang.t(Lang.HUD_DIMENSION, d.dim).append(" · ").append(Lang.t(Lang.UI_ENDPOINT_UNLOADED));
+                else
+                    tip = Lang.t(Lang.HUD_DIMENSION, d.dim);
+                gg.renderTooltip(this.font, tip, mx, my);
                 break;
             }
         }
@@ -255,78 +376,133 @@ public class ChannelScreen extends Screen {
         }
     }
 
-    private void drawPanel(GuiGraphics gg) {
-        int x = leftPos, y = topPos;
-        gg.fill(0, 0, this.width, this.height, 0x66000000);
+    @Override
+    public void renderBackground(GuiGraphics gg) {
+        // no-op: drawPanel() already covers the screen with our own dim + panel
+    }
 
-        // top tab (drawn above the panel)
-        int ty = y - 16;
-        gg.fill(x, ty, x + W, ty + 16, TAB);
-        gg.fill(x, ty, x + W, ty + 1, HI);
-        gg.drawString(this.font, Lang.t(Lang.UI_TITLE), x + 6, ty + 4, TITLE, false);
-        if (!nets.isEmpty()) {
-            String nm = trim(nets.get(netIndex).name, 200);
-            int nmX = x + W / 2 - this.font.width(nm) / 2;
-            gg.drawString(this.font, Component.literal(nm), nmX, ty + 4, 0xFFB8BEC4, false);
-            gg.drawString(this.font, Component.literal("▾"), nmX + this.font.width(nm) + 4, ty + 4, 0xFFB8BEC4, false);
-            netNameHitX = nmX; netNameHitW = this.font.width(nm) + 12; netNameHitValid = true;
-        } else netNameHitValid = false;
-        // main panel from atlas (9-slice)
-        P2PGuiTextures.panel(gg, x, y, W, H);
+    private void drawPanel(GuiGraphics gg, int mx, int my) {
+        gg.fill(0, 0, this.width, this.height, P2PTheme.BG_OVERLAY);
+        P2PTheme.drawRoundRect(gg, leftPos, topPos, W, H, P2PTheme.R_DIALOG, P2PTheme.BG_GROUP);
+        drawNav(gg);
 
         drawLeft(gg);
         drawRight(gg);
+        fitConfigRow();
+        // 面板脚注（常驻提示行）：悬停左列表时显示频道多选说明（1.4.0 新键），其余位置显示
+        // 端点多选 + 复制/粘贴提示——一行宽度只够一句，按悬停区域切换。
+        int lx = leftPos + LEFT_X, ft = topPos + FRAME_TOP, fb = topPos + FRAME_BOTTOM;
+        boolean overLeft = mx >= lx && mx <= lx + LEFT_W && my >= ft && my <= fb;
+        P2PTheme.drawCentered(gg, this.font, Lang.t(overLeft ? Lang.UI_CHANNEL_HINT : Lang.UI_ENDPOINT_HINT),
+                leftPos, topPos + H - 9, W, P2PTheme.TEXT_TERT);
+    }
+
+    /** Navigation row: network pill on the left, centred bold title, paging circles on the right. */
+    private void drawNav(GuiGraphics gg) {
+        int y = topPos + (NAV_H - BAND_H) / 2;
+        netNameHitValid = false;
+        if (!nets.isEmpty()) {
+            String nm = trim(nets.get(netIndex).name, 96);
+            int w = this.font.width(nm) + 24;
+            P2PTheme.pillBackground(gg, leftPos + LEFT_X, y, w, BAND_H, false, true);
+            gg.drawString(this.font, Component.literal(nm), leftPos + LEFT_X + 7, y + 3, P2PTheme.TEXT_PRIMARY, false);
+            gg.drawString(this.font, Component.literal("v"), leftPos + LEFT_X + w - 13, y + 3, P2PTheme.TEXT_SECOND, false);
+            netNameHitX = leftPos + LEFT_X; netNameHitW = w; netNameHitValid = true;
+        }
+        P2PTheme.drawCenteredBold(gg, this.font, Lang.t(Lang.UI_TITLE), leftPos, topPos + 6, W, P2PTheme.TEXT_PRIMARY);
+    }
+
+    /**
+     * Re-flows the 红石/分配/分组/清理空气/区块加载 row to its messages' real widths; the fixed
+     * per-button width makes longer (e.g. Chinese) labels spill past the panel edge. Runs after
+     * drawRight refreshed the messages and before renderWidgets draws the buttons. The medium chip
+     * keeps its own width at the right end of the band.
+     */
+    private void fitConfigRow() {
+        if (redstoneBtn == null || !redstoneBtn.visible) return;
+        // 不可见按钮（如按需出现的"清理失效端点"）不参与排版，避免留出空档
+        List<P2PFlatButton> rowList = new ArrayList<>();
+        for (P2PFlatButton b : new P2PFlatButton[]{redstoneBtn, distBtn, groupBtn, cleanBtn, chunkLoadBtn})
+            if (b.visible) rowList.add(b);
+        if (rowList.isEmpty()) return;
+        P2PFlatButton[] row = rowList.toArray(new P2PFlatButton[0]);
+        int rx = leftPos + RIGHT_X;
+        int chipW = typeBtn != null && typeBtn.visible ? typeBtn.getWidth() + 4 : 0;
+        int gap = 4;
+        int padding = 8;
+        int[] textWidths = new int[row.length];
+        int textTotal = 0;
+        for (int i = 0; i < row.length; i++) {
+            textWidths[i] = this.font.width(row[i].getMessage());
+            textTotal += textWidths[i];
+        }
+        int budget = RIGHT_W - chipW - gap * (row.length - 1) - row.length * padding;
+        float scale = textTotal <= budget ? 1f : (float) budget / textTotal;
+        int x = rx;
+        for (int i = 0; i < row.length; i++) {
+            int text = Math.max(12, Math.round(textWidths[i] * scale));
+            if (text < textWidths[i]) row[i].setMessage(Component.literal(trim(row[i].getMessage().getString(), text)));
+            row[i].setX(x);
+            row[i].setWidth(text + padding + row[i].extraWidth());
+            x += row[i].getWidth() + gap;
+        }
     }
 
     // ---------- left: search + group tree + channel list ----------
     private void drawLeft(GuiGraphics gg) {
-        int x = leftPos, y = topPos, lx = x + 4, lw = 140;
-        int listTop = y + 28, listBottom = y + H - 26, rowH = 16;
+        int lx = leftPos + LEFT_X;
+        int listTop = topPos + FRAME_TOP, listBottom = topPos + FRAME_BOTTOM;
         int listH = listBottom - listTop;
 
-        inset(gg, lx + 1, y + 6, lw - 2, 18);            // search frame
+        P2PTheme.searchField(gg, lx, topPos + BAND_TOP, LEFT_W, BAND_H);
 
-        gg.fill(lx, listTop, lx + lw, listBottom, LEFT_BG);
-        inset(gg, lx, listTop, lw, listH);
+        P2PTheme.card(gg, lx, listTop, LEFT_W, listH);
 
         List<LeftRow> rows = buildLeftRows();
-        leftContentH = rows.size() * rowH;
+        leftContentH = rows.size() * ROW_H;
         leftScroll = clamp(leftScroll, 0, Math.max(0, leftContentH - listH));
         leftRects.clear();
 
+        gg.enableScissor(lx + 1, listTop + 1, lx + LEFT_W - 1, listBottom);
         int baseY = listTop - leftScroll;
         for (int i = 0; i < rows.size(); i++) {
-            int ry = baseY + i * rowH;
-            if (ry + rowH <= listTop) continue;
+            int ry = baseY + i * ROW_H;
+            if (ry + ROW_H <= listTop) continue;
             if (ry > listBottom) break;
             LeftRow r = rows.get(i);
             if (r.kind == 0) { // group header — selectable tree node
                 boolean gSel = r.id == selectedGroup;
-                gg.fill(lx + 1, ry, lx + lw - 1, ry + rowH, gSel ? SEL : GRP_BG);
-                gg.fill(lx + 2, ry + 2, lx + 6, ry + rowH - 2, r.color == 0 ? 0xFF6b6b6b : r.color);
-                String caret = openGroups.contains(r.id) ? "▾" : "▸";
-                gg.drawString(this.font, Component.literal(caret + " " + trim(r.label, lw - 32)), lx + 10, ry + 4, gSel ? 0xFFFFFFFF : INK, false);
+                if (gSel) P2PTheme.drawRoundRect(gg, lx + 1, ry, LEFT_W - 2, ROW_H, P2PTheme.R_CARD, P2PTheme.CARD_SEL);
+                P2PTheme.drawRoundRect(gg, lx + P2PTheme.PAD, ry + 3, 4, ROW_H - 6, 2, r.color == 0 ? P2PTheme.TEXT_TERT : r.color);
+                String caret = openGroups.contains(r.id) ? "v" : ">";
+                gg.drawString(this.font, Component.literal(caret + " " + trim(r.label, LEFT_W - 46)),
+                        lx + P2PTheme.PAD + 10, ry + 5, P2PTheme.TEXT_PRIMARY, false);
                 String cnt = String.valueOf(groupCount(r.id));
-                gg.drawString(this.font, Component.literal(cnt), lx + lw - 8 - this.font.width(cnt), ry + 4, INK_DIM, false);
-                leftRects.add(new Hit(lx + 1, ry, lw - 2, rowH, 0, r.id));
-                gg.fill(lx + 1, ry + rowH - 1, lx + lw - 1, ry + rowH, P2PGuiTextures.SEP);   // separator under header
+                gg.drawString(this.font, Component.literal(cnt), lx + LEFT_W - P2PTheme.PAD - this.font.width(cnt),
+                        ry + 5, P2PTheme.TEXT_SECOND, false);
+                leftRects.add(new Hit(lx + 1, ry, LEFT_W - 2, ROW_H, 0, r.id));
+                gg.fill(lx + P2PTheme.PAD, ry + ROW_H - 1, lx + LEFT_W - P2PTheme.PAD, ry + ROW_H, P2PTheme.SEPARATOR);
             } else { // channel row — child rows are indented with a left tree guide line
-                boolean sel = r.id == selectedChannel;
-                if (sel) gg.fill(lx + 1, ry, lx + lw - 1, ry + rowH, SEL);
-                if (r.child) gg.fill(lx + 2, ry + 2, lx + 4, ry + rowH - 2, 0xFF5A6068);  // tree guide line
-                int ind = r.child ? 26 : 8;
-                int rowInk = sel ? 0xFFFFFFFF : INK_DIM;
-                // show the channel name only (no "#id" prefix); trim so the type tag fits inside the list border
-                int nameMax = lw - 42 - (r.child ? 18 : 0);
-                gg.drawString(this.font, Component.literal(trim(r.label, nameMax)), lx + ind, ry + 4, rowInk, false);
-                // medium tag moved left (28px wide) so its right edge stays inside the list bevel
-                typeTag(gg, lx + lw - 32, ry + 2, r.type);
-                leftRects.add(new Hit(lx + 1, ry, lw - 2, rowH, 1, r.id));
-                gg.fill(lx + 1, ry + rowH - 1, lx + lw - 1, ry + rowH, P2PGuiTextures.SEP);   // row separator
+                // 1.4.0：多选集合中的行与"最后选中"行同用 CARD_SEL 底色（与端点行一致）
+                boolean sel = r.id == selectedChannel || selectedChannels.contains(r.id);
+                if (sel) P2PTheme.drawRoundRect(gg, lx + 1, ry, LEFT_W - 2, ROW_H, P2PTheme.R_CARD, P2PTheme.CARD_SEL);
+                if (r.child) gg.fill(lx + P2PTheme.PAD + 1, ry + 3, lx + P2PTheme.PAD + 3, ry + ROW_H - 3, P2PTheme.SEPARATOR);
+                int ind = r.child ? 24 : P2PTheme.PAD;
+                int rowInk = sel ? P2PTheme.TEXT_PRIMARY : P2PTheme.TEXT_SECOND;
+                // show the channel name only (no "#id" prefix); trim so the type tag fits inside the card
+                int nameMax = LEFT_W - 40 - (r.child ? 16 : 0);
+                gg.drawString(this.font, Component.literal(trim(r.label, nameMax)), lx + ind, ry + 5, rowInk, false);
+                typeTag(gg, lx + LEFT_W - 8 - 56, ry + 4, r.type);
+                leftRects.add(new Hit(lx + 1, ry, LEFT_W - 2, ROW_H, 1, r.id));
+                gg.fill(lx + P2PTheme.PAD, ry + ROW_H - 1, lx + LEFT_W - P2PTheme.PAD, ry + ROW_H, P2PTheme.SEPARATOR);
             }
         }
-            if (rows.isEmpty())
-            gg.drawString(this.font, Lang.t(Lang.UI_NO_MATCH), lx + 8, listTop + 10, INK_DIM, false);
+        if (rows.isEmpty()) {
+            gg.disableScissor();
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_MATCH), lx + P2PTheme.PAD, listTop + 10, P2PTheme.TEXT_SECOND, false);
+        } else {
+            gg.disableScissor();
+        }
     }
 
     private List<LeftRow> buildLeftRows() {
@@ -369,221 +545,297 @@ public class ChannelScreen extends Screen {
 
     // ---------- right: selected channel detail ----------
     private void drawRight(GuiGraphics gg) {
-        int x = leftPos, y = topPos, rx = x + 148, rw = W - 148 - 4;
-        nameHitValid = false;
+        int rx = leftPos + RIGHT_X;
+        int cx = rxF();
         Channel c = findChannel(selectedChannel);
         boolean has = c != null;
         redstoneBtn.visible = distBtn.visible = rateDown.visible = rateUp.visible = speedDown.visible = speedUp.visible
-                = rateEdit.visible = speedEdit.visible = groupBtn.visible = bindBtn.visible = deleteBtn.visible = cleanBtn.visible
+                = rateEdit.visible = speedEdit.visible = groupBtn.visible = bindBtn.visible = deleteBtn.visible
                 = maxRateBtn.visible = has;
+        // 清理失效端点按钮：仅当前频道存在失效端点时出现（行扫描后再定，见下方 row loop）
+        cleanBtn.visible = false;
         typeBtn.visible = has;
         if (deleteGrpBtn != null) deleteGrpBtn.active = has && (selectedGroup >= 0 || (c != null && c.groupId >= 0));
         if (!has) {
-            gg.fill(rx, y + 8, rx + rw, y + H - 26, RIGHT_BG);
-            inset(gg, rx, y + 8, rw, (y + H - 26) - (y + 8));
-            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL), rx + 10, y + 24, INK, false);
-            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT1), rx + 10, y + 44, INK_DIM, false);
-            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT2), rx + 10, y + 62, INK_DIM, false);
+            P2PTheme.card(gg, rx, topPos + FRAME_TOP, RIGHT_W, FRAME_BOTTOM - FRAME_TOP);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL), cx, topPos + FRAME_TOP + 24, P2PTheme.TEXT_PRIMARY, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT1), cx, topPos + FRAME_TOP + 44, P2PTheme.TEXT_SECOND, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT2), cx, topPos + FRAME_TOP + 62, P2PTheme.TEXT_SECOND, false);
             return;
         }
 
-        // header: #id  name  [type tag] — white text on a dark strip to match the button style
-        int headerTop = y + 8, headerH = 18;
-        gg.fill(rx, headerTop, rx + rw, headerTop + headerH, TAB);
-        inset(gg, rx, headerTop, rw, headerH);
-        gg.drawString(this.font, Component.literal("#" + c.id), rx + 4, y + 11, TITLE, false);
-        String nm = trim(c.name == null ? "#" + c.id : c.name, rw - 108);
-        gg.drawString(this.font, Component.literal(nm), rx + 34, y + 10, TITLE, false);
-        nameHitX = rx + 34; nameHitY = y + 8; nameHitW = this.font.width(nm) + 4; nameHitH = 15; nameHitValid = true;
-
-        // config reflects state
-        redstoneBtn.setMessage(Lang.t(Lang.UI_REDSTONE, redstoneLabel(c.redstoneMode)));
-        distBtn.setMessage(Lang.t(Lang.UI_DISTRIBUTION, distLabel(c.distribution)));
-        groupBtn.setMessage(Lang.t(Lang.UI_GROUP, groupLabel(c.groupId)));
-        typeBtn.setMessage(Lang.t(Lang.UI_MEDIUM, typeLabel(c.type)));
+        // config reflects state — pill 只显短标签（spec v1.1），当前值进 tooltip，非默认态 TINT 提亮
+        redstoneBtn.setMessage(Lang.t(Lang.UI_PILL_REDSTONE));
+        redstoneBtn.setTooltip(Tooltip.create(Lang.t(Lang.UI_REDSTONE, redstoneLabel(c.redstoneMode))));
+        redstoneBtn.setHighlighted(c.redstoneMode != Channel.RedstoneMode.ALWAYS);
+        distBtn.setMessage(Lang.t(Lang.UI_PILL_DIST));
+        distBtn.setTooltip(Tooltip.create(Lang.t(Lang.UI_DISTRIBUTION, distLabel(c.distribution))));
+        distBtn.setHighlighted(c.distribution != Channel.Distribution.ROUND_ROBIN);
+        groupBtn.setMessage(Lang.t(Lang.UI_PILL_GROUP));
+        groupBtn.setTooltip(Tooltip.create(Lang.t(Lang.UI_GROUP, groupLabel(c.groupId))));
+        groupBtn.setHighlighted(c.groupId >= 0);
+        // cleanBtn 是动作钮没有状态，高亮恒为 false；tooltip 说明"清理失效端点"的范围
+        cleanBtn.setMessage(Lang.t(Lang.UI_PILL_CLEAN));
+        cleanBtn.setTooltip(Tooltip.create(Lang.t(Lang.UI_CLEAN_INVALID)));
+        cleanBtn.setHighlighted(false);
+        typeBtn.setMessage(typeLabel(c.type));
+        typeBtn.setChipColor(typeColor(c.type));
+        typeBtn.setWidth(Math.min(this.font.width(typeLabel(c.type)) + 12, 56));
+        typeBtn.setX(rx + RIGHT_W - typeBtn.getWidth());
         // chunk loading is a network-level switch shown next to the channel-level buttons
         Network net = null;
         for (Network nn : nets) if (nn.id == c.networkId) { net = nn; break; }
         boolean netLoad = net != null && net.chunkLoad;
-        chunkLoadBtn.setMessage(Lang.t(netLoad ? Lang.UI_CHUNKLOAD_ON : Lang.UI_CHUNKLOAD_OFF));
+        chunkLoadBtn.setMessage(Lang.t(Lang.UI_PILL_CHUNKLOAD));
+        chunkLoadBtn.setTooltip(Tooltip.create(Lang.t(netLoad ? Lang.UI_CHUNKLOAD_ON : Lang.UI_CHUNKLOAD_OFF)));
         chunkLoadBtn.setSelected(netLoad);
+        chunkLoadBtn.setHighlighted(netLoad);
         // rate / speed editable values (refresh the box text only when not actively typing)
         if (!rateEdit.isFocused() && !rateEdit.getValue().equals(String.valueOf(c.rate))) rateEdit.setValue(String.valueOf(c.rate));
         if (!speedEdit.isFocused() && !speedEdit.getValue().equals(String.valueOf(c.speed))) speedEdit.setValue(String.valueOf(c.speed));
-        String unitShort = c.type == Mediums.ITEM ? Lang.t(Lang.UI_UNIT_ITEM).getString() : c.type == Mediums.FLUID ? Lang.t(Lang.UI_UNIT_MB).getString() : c.type == Mediums.ENERGY ? Lang.t(Lang.UI_UNIT_FE).getString() : c.type.displayName().getString();
-        gg.drawString(this.font, Lang.t(Lang.UI_RATE), rx, y + 50, INK, false);
-        gg.drawString(this.font, Component.literal(unitShort + "≈" + formatPerSec(c.rate, c.speed) + "/s"), rx + 150, y + 58, INK_DIM, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_THROTTLE), rx, y + 68, INK, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_EVERY_TICKS, c.speed), rx + 114, y + 68, INK_DIM, false);
 
-        // endpoint table (fixed-column layout so direction and IN/OUT line up regardless of coordinate width).
-        // Group/clean buttons moved up to the 红石/分配 row, so the table starts sooner and shows more coordinates.
-        int mTop = y + 88, mBottom = y + H - 26;
-        int rowH = 16, listH = mBottom - mTop - headerH;
-        gg.fill(rx, mTop, rx + rw, mBottom, RIGHT_BG);
-        inset(gg, rx, mTop, rw, mBottom - mTop);
-        // header strip
-        gg.fill(rx + 1, mTop + 1, rx + rw - 1, mTop + headerH - 1, SEL);
-        gg.drawString(this.font, Lang.t(Lang.UI_DIM), rx + 4, mTop + 5, 0xFFE0E0E0, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_POS), rx + 29, mTop + 5, 0xFFE0E0E0, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_FACE), rx + 93, mTop + 5, 0xFFE0E0E0, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_FLOW), rx + 108, mTop + 5, 0xFFE0E0E0, false);
-        Component cnt = Lang.t(Lang.UI_MEMBER_COUNT, c.members.size());
-        gg.drawString(this.font, cnt, rx + rw - 6 - this.font.width(cnt), mTop + 5, 0xFFE0E0E0, false);
-
-        memberBtns.clear();
-        posHits.clear();
-        dimHits.clear();
-        blockHits.clear();
-        if (c.members.isEmpty()) {
-            gg.drawString(this.font, Lang.t(Lang.UI_NO_ENDPOINT), rx + 10, mTop + 26, 0xFFE0E0E0, false);
-            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT2), rx + 10, mTop + 42, P2PGuiTextures.INK_DIM, false);
+        // per-medium extension: a medium may take over the whole right-hand detail panel
+        // (hides the generic rate/throttle controls, skips the default endpoint table)
+        ChannelScreenExtension ext = extensionFor(c);
+        if (ext != null && ext.replacesDefaultPanel(c)) {
+            rateDown.visible = rateUp.visible = speedDown.visible = speedUp.visible = maxRateBtn.visible = false;
+            rateEdit.visible = speedEdit.visible = false;
+            memberBtns.clear(); jumpHits.clear(); dimHits.clear(); blockHits.clear(); faceHits.clear();
+            ext.drawDetails(detailContext(), gg, c);
             return;
         }
-        memberContentH = c.members.size() * rowH;
-        memberScroll = clamp(memberScroll, 0, Math.max(0, memberContentH - listH));
-        int baseY = mTop + headerH - memberScroll;
 
-        // fixed column positions (relative to rx). Coordinates are LEFT-aligned close to the dimension label so
-        // every row starts at the same x; longer coordinates are ellipsised instead of pushing the other columns.
-        final int colIconX = 1;                         // 16px 方块图标（坐标节点旁）
-        final int colDimX = 19, colDimW = 4;            // colour pill
-        final int colDimTextX = 25;                     // 2-char dimension label (tooltip = full id)
-        final int colPosX = 41, colPosW = 48;
-        final int colFaceX = 92, colFaceW = 14;         // direction column, centered
-        final int colRoleX = 108;                       // IN/OUT square + text
-        final int colToggleX = 108, colToggleW = 16;    // IN/OUT swap button
-        final int colPriorityX = 125, colPriorityW = 16; // priority value (click to type any number)
-        final int colFilterX = 142, colFilterW = 38;
-        final int colDelX = 208, colDelW = 20;          // remove endpoint (red ×)
+        // 1.4.0：频道标题卡已删除（重命名入口移至左列表双击），速率卡上移、端点表加高
+        drawRateCard(gg, cx, c);
 
-        for (int i = 0; i < c.members.size(); i++) {
-            int ry = baseY + i * rowH;
-            if (ry + rowH <= mTop + headerH) continue;
-            if (ry > mBottom) break;
-            Member m = c.members.get(i);
-            boolean sel = i == selectedMember;
-            if (sel) gg.fill(rx + 1, ry, rx + rw - 1, ry + rowH, SEL);
-            // subtle row separator
-            gg.fill(rx + 2, ry + rowH - 1, rx + rw - 2, ry + rowH, P2PGuiTextures.SEP);
+        // endpoint table (fixed-column layout so direction and IN/OUT line up regardless of coordinate width)
+        // 表头与列内容一一对齐：维度=色条+短名的块头，坐标=坐标文本起点，面/流向在本列居中
+        int tableTop = topPos + TABLE_TOP;
+        int rowsTop = tableTop + TABLE_HEAD;
+        int tableBottom = topPos + FRAME_BOTTOM;
+        P2PTheme.card(gg, rx, tableTop, RIGHT_W, tableBottom - tableTop);
+        gg.drawString(this.font, Lang.t(Lang.UI_DIM), cx + COL_DIM, tableTop + 5, P2PTheme.TEXT_SECOND, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_POS), cx + COL_POS, tableTop + 5, P2PTheme.TEXT_SECOND, false);
+        Component faceHead = Lang.t(Lang.UI_FACE);
+        P2PTheme.drawCentered(gg, this.font, faceHead, cx + COL_FACE, tableTop + 5, COL_FACE_W, P2PTheme.TEXT_SECOND);
+        Component flowHead = Lang.t(Lang.UI_FLOW);
+        P2PTheme.drawCentered(gg, this.font, flowHead, cx + COL_ROLE, tableTop + 5, P2PTheme.BADGE_W, P2PTheme.TEXT_SECOND);
+        Component cnt = Lang.t(Lang.UI_MEMBER_COUNT, c.members.size());
+        gg.drawString(this.font, cnt, rx + RIGHT_W - P2PTheme.PAD - this.font.width(cnt), tableTop + 5, P2PTheme.TEXT_SECOND, false);
+        gg.fill(rx + P2PTheme.PAD, rowsTop, rx + RIGHT_W - P2PTheme.PAD, rowsTop + 1, P2PTheme.SEPARATOR);
 
-            // 方块图标：坐标节点旁显示该位置方块，方便辨认。
-            // 同维度且区块已加载时优先实时取（pick-stack + 方块实体 NBT 能还原模组方块的变体/染色，
-            // 如精妙存储「橡木钻石箱子」的木材类型——JEI 对物品名的显示也以 ItemStack 为准）；
-            // 否则退回绑定时记录的 Member.blockId——这样跨维度 / 区块未加载的端点也有图标。
-            ItemStack icon = ItemStack.EMPTY;
-            if (this.minecraft.level != null && this.minecraft.level.dimension().location().equals(m.dim)) {
-                BlockState st = this.minecraft.level.getBlockState(m.pos);
-                Block blk = st.getBlock();
-                if (blk != Blocks.AIR && blk.asItem() != Items.AIR) {
-                    ItemStack pick = blk.getCloneItemStack(st,
-                            new BlockHitResult(Vec3.atCenterOf(m.pos), m.face, m.pos, false),
-                            this.minecraft.level, m.pos, this.minecraft.player);
-                    if (pick.isEmpty()) pick = new ItemStack(blk.asItem());
-                    // 把方块实体的 NBT 挂到 pick-stack 上（vanilla BlockItem 同款 "BlockEntityTag"），
-                    // 模组物品（精妙存储等）读它还原木材/等级变体，图标与名称才会和世界里的实际方块一致。
-                    BlockEntity be = this.minecraft.level.getBlockEntity(m.pos);
-                    if (be != null) {
-                        CompoundTag beTag = be.saveWithFullMetadata();
-                        beTag.remove("id");
-                        BlockItem.setBlockEntityData(pick, be.getType(), beTag);
-                    }
-                    icon = pick;
-                }
-            }
-            if (icon.isEmpty() && m.blockId != null) {
-                // BuiltInRegistries.BLOCK 是 DefaultedRegistry：查不到返回 AIR 而不是 null
-                Block blk = BuiltInRegistries.BLOCK.get(m.blockId);
-                if (blk != Blocks.AIR && blk.asItem() != Items.AIR) {
-                    icon = new ItemStack(blk.asItem());
-                }
-            }
-            if (!icon.isEmpty()) {
-                gg.renderItem(icon, rx + colIconX, ry + 0);
-                blockHits.add(new BlockHit(i, rx + colIconX, ry, 16, 16, icon));
-            }
-
-            // dimension: colour pill + short label (hover shows the full dimension id)
-            String dimId = m.dim.toString();
-            gg.fill(rx + colDimX, ry + 3, rx + colDimX + colDimW, ry + 12, dimColor(dimId) | 0xFF000000);
-            String dimS = dimShort(dimId);
-            gg.drawString(this.font, Component.literal(dimS), rx + colDimTextX, ry + 4, 0xFFE0E0E0, false);
-            dimHits.add(new DimHit(dimId, rx + colDimX, ry + 2, colDimTextX - colDimX + this.font.width(dimS) + 2, 14));
-
-            // coordinate (left-aligned at a fixed x; ellipsised if a huge coordinate would overflow)
-            String pos = trim(m.pos.getX() + "," + m.pos.getY() + "," + m.pos.getZ(), colPosW);
-            int posX = rx + colPosX;
-            gg.drawString(this.font, Component.literal(pos), posX, ry + 4, 0xFFE0E0E0, false);
-            posHits.add(new PosHit(i, posX - 2, ry + 2, this.font.width(pos) + 4, 14));
-
-            // face direction (centered in its column)
-            Component face = faceShort(m.face);
-            int faceW = this.font.width(face);
-            gg.drawString(this.font, face, rx + colFaceX + (colFaceW - faceW) / 2, ry + 4, 0xFFE0E0E0, false);
-            faceHits.add(new FaceHit(i, rx + colFaceX - 2, ry + 1, colFaceW + 4, 14));
-
-            // action buttons (fixed positions)
-            int tbX = rx + colToggleX, pX = rx + colPriorityX, fbX = rx + colFilterX, dbX = rx + colDelX;
-            // role-tinted IN/OUT button (click to swap role)
-            int roleColor = m.role == Role.INPUT ? IN_C : OUT_C;
-            gg.fill(tbX, ry + 1, tbX + colToggleW, ry + 15, roleColor);
-            gg.fill(tbX + colToggleW - 1, ry + 1, tbX + colToggleW, ry + 15, 0x44000000);
-            String roleS = m.role == Role.INPUT ? "IN" : "OUT";
-            gg.drawString(this.font, Component.literal(roleS), tbX + 3, ry + 4, 0xFFFFFFFF, false);
-            addInline(gg, pX, ry + 1, colPriorityW, 14, "P" + m.priority, false);
-            addInline(gg, fbX, ry + 1, colFilterW, 14, Lang.t(Lang.UI_FILTER).getString(), hasFilter(m));
-            addDanger(gg, dbX, ry + 1, colDelW, 14, "×");
-            memberBtns.add(new MemberBtn(i, 0, fbX, ry + 1, colFilterW, 14));
-            memberBtns.add(new MemberBtn(i, 1, tbX, ry + 1, colToggleW, 14));
-            memberBtns.add(new MemberBtn(i, 2, dbX, ry + 1, colDelW, 14));
-            memberBtns.add(new MemberBtn(i, 3, pX, ry + 1, colPriorityW, 14));
+        memberBtns.clear();
+        jumpHits.clear();
+        dimHits.clear();
+        blockHits.clear();
+        faceHits.clear();
+        if (c.members.isEmpty()) {
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_ENDPOINT), cx, rowsTop + 12, P2PTheme.TEXT_PRIMARY, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_CHANNEL_HINT2), cx, rowsTop + 28, P2PTheme.TEXT_SECOND, false);
+            if (ext != null) ext.drawDetails(detailContext(), gg, c);
+            return;
         }
+        // 失效端点实时统计（同维度已加载但方块为空气）；驱动"清理失效端点"按钮显隐
+        invalidCount = 0;
+        for (Member m : c.members) if (endpointState(m) == EndpointState.INVALID) invalidCount++;
+        cleanBtn.visible = invalidCount > 0;
+        int viewport = tableBottom - rowsTop;
+        memberContentH = c.members.size() * ROW_H;
+        memberScroll = clamp(memberScroll, 0, Math.max(0, memberContentH - viewport));
+        int baseY = rowsTop - memberScroll;
+
+        gg.enableScissor(rx + 1, rowsTop + 1, rx + RIGHT_W - 1, tableBottom);
+        for (int i = 0; i < c.members.size(); i++) {
+            int ry = baseY + i * ROW_H;
+            if (ry + ROW_H <= rowsTop) continue;
+            if (ry > tableBottom) break;
+            drawMemberRow(gg, c.members.get(i), i, ry, cx);
+        }
+        gg.disableScissor();
+        // overlay details (default panel still visible) — non-replacing extensions draw here
+        if (ext != null) ext.drawDetails(detailContext(), gg, c);
     }
 
-    // a faux button drawn with the bevel language (real input handled in mouseClicked)
-    private void addInline(GuiGraphics gg, int bx, int by, int bw, int bh, String label, boolean marked) {
-        gg.fill(bx, by, bx + bw, by + bh, P2PGuiTextures.FAUX_BTN);
-        gg.fill(bx, by, bx + bw, by + 1, HI);
-        gg.fill(bx, by, bx + 1, by + bh, HI);
-        gg.fill(bx, by + bh - 1, bx + bw, by + bh, SH);
-        gg.fill(bx + bw - 1, by, bx + bw, by + bh, SH);
-        gg.drawString(this.font, Component.literal(label), bx + (bw - this.font.width(label)) / 2, by + 4, marked ? P2PGuiTextures.MARK_GOLD : INK, false);
+    /** Rate + throttle card: two 18px rows, each label / stepper / derived footnote. */
+    private void drawRateCard(GuiGraphics gg, int cx, Channel c) {
+        P2PTheme.card(gg, leftPos + RIGHT_X, topPos + RATE_TOP, RIGHT_W, RATE_ROW * 2);
+        gg.fill(leftPos + RIGHT_X + P2PTheme.PAD, topPos + RATE_TOP + RATE_ROW,
+                leftPos + RIGHT_X + RIGHT_W - P2PTheme.PAD, topPos + RATE_TOP + RATE_ROW + 1, P2PTheme.SEPARATOR);
+
+        P2PTheme.stepperField(gg, cx + 46, topPos + RATE_TOP + 2, 34, 14);
+        gg.drawString(this.font, Lang.t(Lang.UI_RATE), cx, topPos + RATE_TOP + 5, P2PTheme.TEXT_SECOND, false);
+        // 单位与介质名分开画：p2p.unit.<介质id> 没有配键时留空，长介质名因此不再被截断。
+        int footX = cx + 132;
+        String unit = Lang.unitOf(c.type.id);
+        if (!unit.isEmpty()) {
+            gg.drawString(this.font, Component.literal(unit), footX, topPos + RATE_TOP + 5, P2PTheme.TEXT_SECOND, false);
+            footX += this.font.width(unit) + 4;
+        }
+        gg.drawString(this.font, Component.literal("~" + formatPerSec(c.rate, c.speed) + "/s"),
+                footX, topPos + RATE_TOP + 5, P2PTheme.TEXT_TERT, false);
+
+        P2PTheme.stepperField(gg, cx + 46, topPos + RATE_TOP + RATE_ROW + 2, 34, 14);
+        gg.drawString(this.font, Lang.t(Lang.UI_THROTTLE), cx, topPos + RATE_TOP + RATE_ROW + 5, P2PTheme.TEXT_SECOND, false);
+        gg.drawString(this.font, Lang.t(Lang.UI_EVERY_TICKS, c.speed), cx + 100,
+                topPos + RATE_TOP + RATE_ROW + 5, P2PTheme.TEXT_TERT, false);
+    }
+
+    /** 端点行的实时状态（1.3.1，面板直接反映世界现状，不做破坏自动移除）。 */
+    private enum EndpointState {
+        /** 维度已加载且方块仍在：正常图标。 */
+        VALID,
+        /** 维度已加载但坐标处是空气：方块已被破坏 → 空槽井 + 整行红字"已失效"。 */
+        INVALID,
+        /** 跨维度 / 区块未加载：状态未知 → blockId 兜底图标 + "未加载"级提示，不标红。 */
+        UNKNOWN
+    }
+
+    /**
+     * 实时解析端点现状：只在玩家当前维度且区块已加载时才能判定（空气=失效、有方块=有效）；
+     * 其余情况（跨维度、本维度区块未加载）一律 UNKNOWN，绝不把"查不到"误判成"已失效"。
+     */
+    private EndpointState endpointState(Member m) {
+        if (this.minecraft.level == null || !this.minecraft.level.dimension().location().equals(m.dim))
+            return EndpointState.UNKNOWN;
+        if (!this.minecraft.level.hasChunkAt(m.pos)) return EndpointState.UNKNOWN;
+        return this.minecraft.level.getBlockState(m.pos).isAir() ? EndpointState.INVALID : EndpointState.VALID;
+    }
+
+    private void drawMemberRow(GuiGraphics gg, Member m, int index, int ry, int cx) {
+        // 选中判定按 memberKey（多选集合），行内控件的点击语义不受选中影响
+        boolean sel = selectedEndpoints.contains(m.key());
+        if (sel) P2PTheme.drawRoundRect(gg, cx - P2PTheme.PAD + 1, ry, RIGHT_W - 2, ROW_H, P2PTheme.R_CARD, P2PTheme.CARD_SEL);
+        gg.fill(cx, ry + ROW_H - 1, cx + RIGHT_W - P2PTheme.PAD * 2, ry + ROW_H, P2PTheme.SEPARATOR);
+
+        EndpointState st = endpointState(m);
+        boolean invalid = st == EndpointState.INVALID;
+
+        // 方块图标三态：有效=实时取（pick-stack + 方块实体 NBT 还原模组变体）；
+        // 未知（跨维度/区块未加载）=绑定时记录的 blockId 兜底显示最后已知图标；
+        // 已失效=不画旧图标，画空槽井（绝不回退到 blockId 显示已破坏方块的"幽灵图标"）。
+        ItemStack icon = endpointIcon(m);
+        if (!icon.isEmpty()) {
+            gg.renderItem(icon, cx + COL_ICON, ry + 1);
+            blockHits.add(new BlockHit(index, cx + COL_ICON, ry, 16, ROW_H, icon));
+        } else {
+            P2PTheme.slotWell(gg, cx + COL_ICON, ry + 1);
+        }
+
+        // 双击定位热区 = 物品图标 + 维度色条那一段（单击=选中，双击=跳转定位，见 mouseClicked）
+        jumpHits.add(new JumpHit(index, cx + COL_ICON, ry, COL_DIM_TEXT - COL_ICON, ROW_H));
+
+        // dimension: colour pill + short label (hover shows the full dimension id + 状态提示)
+        String dimId = m.dim.toString();
+        P2PTheme.dimPill(gg, cx + COL_DIM, ry + 3, ROW_H - 6,
+                invalid ? P2PTheme.DANGER : st == EndpointState.UNKNOWN ? P2PTheme.TEXT_TERT : dimColor(dimId));
+        Component dimLabel = invalid ? Lang.t(Lang.UI_ENDPOINT_INVALID) : Component.literal(dimShort(dimId));
+        gg.drawString(this.font, dimLabel, cx + COL_DIM_TEXT, ry + 5,
+                invalid ? P2PTheme.DANGER : st == EndpointState.UNKNOWN ? P2PTheme.TEXT_TERT : P2PTheme.TEXT_PRIMARY, false);
+        dimHits.add(new DimHit(dimId, st, cx + COL_DIM, ry + 2,
+                COL_DIM_TEXT - COL_DIM + this.font.width(dimLabel) + 2, ROW_H - 4));
+
+        // coordinate (left-aligned at a fixed x; ellipsised if a huge coordinate would overflow)
+        String pos = trim(m.pos.getX() + "," + m.pos.getY() + "," + m.pos.getZ(), COL_POS_W);
+        int posX = cx + COL_POS;
+        gg.drawString(this.font, Component.literal(pos), posX, ry + 5,
+                invalid ? P2PTheme.DANGER : P2PTheme.TEXT_PRIMARY, false);
+
+        // face direction: 专属控件热区（点击循环换面 SET_FACE），做成小 pill 以示可点；
+        // 失效行不画 pill（换面已无意义），只保留红字展示。
+        Component face = faceShort(m.face);
+        int faceW = this.font.width(face);
+        if (!invalid) {
+            P2PTheme.drawPill(gg, cx + COL_FACE - 2, ry + 3, COL_FACE_W + 4, 12, P2PTheme.FIELD_BG);
+            gg.drawString(this.font, face, cx + COL_FACE + (COL_FACE_W - faceW) / 2, ry + 5, P2PTheme.TEXT_PRIMARY, false);
+        } else {
+            gg.drawString(this.font, face, cx + COL_FACE + (COL_FACE_W - faceW) / 2, ry + 5, P2PTheme.DANGER, false);
+        }
+        // 失效行不注册换面热区（与"不画 pill"一致）：点击落入整行选中，不再发 SET_FACE。
+        if (!invalid) faceHits.add(new FaceHit(index, cx + COL_FACE - 2, ry + 3, COL_FACE_W + 4, 12));
+
+        // IN/OUT badge (click to swap role), priority, filter, circular delete
+        int bx = cx + COL_ROLE, pX = cx + COL_PRIORITY, fbX = cx + COL_FILTER, dbX = cx + COL_DELETE;
+        P2PTheme.roleBadge(gg, bx, ry + 3, m.role == Role.INPUT);
+        P2PTheme.drawCentered(gg, this.font, Component.literal(m.role == Role.INPUT ? "IN" : "OUT"),
+                bx, ry + 5, P2PTheme.BADGE_W, 0xFFFFFFFF);
+        addFaux(gg, pX, ry + 3, COL_PRIORITY_W, P2PTheme.FIELD_BG, "P" + m.priority, P2PTheme.TEXT_PRIMARY);
+        addFaux(gg, fbX, ry + 3, COL_FILTER_W, hasFilter(m) ? P2PTheme.CARD_SEL : P2PTheme.FIELD_BG,
+                Lang.t(Lang.UI_FILTER).getString(), hasFilter(m) ? P2PTheme.TINT : P2PTheme.TEXT_SECOND);
+        P2PTheme.deleteCross(gg, dbX, ry + 2, false);
+        memberBtns.add(new MemberBtn(index, 0, fbX, ry + 3, COL_FILTER_W, 12));
+        memberBtns.add(new MemberBtn(index, 1, bx, ry + 3, P2PTheme.BADGE_W, 12));
+        memberBtns.add(new MemberBtn(index, 2, dbX, ry + 2, P2PTheme.CIRCLE, P2PTheme.CIRCLE));
+        memberBtns.add(new MemberBtn(index, 3, pX, ry + 3, COL_PRIORITY_W, 12));
+    }
+
+    /**
+     * 按端点状态解析图标：VALID=实时取（同维度，pick-stack + BE NBT）；INVALID=空（绝不回退到
+     * blockId 显示已破坏方块的旧图标）；UNKNOWN（跨维度/区块未加载）=blockId 兜底显示最后已知图标。
+     */
+    private ItemStack endpointIcon(Member m) {
+        EndpointState st = endpointState(m);
+        if (st == EndpointState.INVALID) return ItemStack.EMPTY;
+        if (st == EndpointState.VALID) {
+            BlockState stt = this.minecraft.level.getBlockState(m.pos);
+            Block blk = stt.getBlock();
+            if (blk != Blocks.AIR && blk.asItem() != Items.AIR) {
+                ItemStack pick = blk.getCloneItemStack(stt,
+                        new BlockHitResult(Vec3.atCenterOf(m.pos), m.face, m.pos, false),
+                        this.minecraft.level, m.pos, this.minecraft.player);
+                if (pick.isEmpty()) pick = new ItemStack(blk.asItem());
+                // 把方块实体的 NBT 挂到 pick-stack 上（vanilla BlockItem 的 "BlockEntityTag"），
+                // 模组物品（精妙存储等）读它还原木材/等级变体，图标与名称才会和世界里的实际方块一致。
+                BlockEntity be = this.minecraft.level.getBlockEntity(m.pos);
+                if (be != null) {
+                    CompoundTag beTag = be.saveWithFullMetadata();
+                    beTag.remove("id");
+                    pick.getOrCreateTag().put("BlockEntityTag", beTag);
+                }
+                return pick;
+            }
+            return ItemStack.EMPTY;
+        }
+        // UNKNOWN：BuiltInRegistries.BLOCK 是 DefaultedRegistry：查不到返回 AIR 而不是 null
+        if (m.blockId != null) {
+            Block blk = BuiltInRegistries.BLOCK.get(m.blockId);
+            if (blk != Blocks.AIR && blk.asItem() != Items.AIR) return new ItemStack(blk.asItem());
+        }
+        return ItemStack.EMPTY;
     }
 
     // ============================================================ input
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
+        ChannelScreenExtension ext = extensionFor(findChannel(selectedChannel));
+        if (ext != null && ext.mouseClicked(detailContext(), mx, my, button)) return true;
         if (super.mouseClicked(mx, my, button)) return true;
         int ix = (int) mx, iy = (int) my;
-        if (netNameHitValid && iy >= topPos - 16 && iy <= topPos - 2 && ix >= netNameHitX && ix <= netNameHitX + netNameHitW) {
+        if (netNameHitValid && iy >= topPos && iy <= topPos + NAV_H && ix >= netNameHitX && ix <= netNameHitX + netNameHitW) {
             minecraft.setScreen(new NetworkScreen());
             return true;
         }
-        if (nameHitValid && ix >= nameHitX && ix <= nameHitX + nameHitW && iy >= nameHitY && iy <= nameHitY + nameHitH) {
-            Channel c = findChannel(selectedChannel);
-            if (c != null) minecraft.setScreen(new NameInputScreen(this, Lang.t(Lang.UI_RENAME), c.name == null ? "" : c.name, 0, c.id, null));
-            return true;
-        }
-        // Double-click a member's coordinate text → jump to that block: draw a see-through red frame in-world
-        // and close the GUI so the player can look at the highlighted block.
+        // （1.4.0）标题卡已删除；频道重命名改为左列表双击，见下方 leftRects 处理
+        // 双击端点行的物品图标 / 维度色条区 → 跳转到世界方块：画透视红框并关 GUI。
+        // 单击该区不再被消费（落到下方整行选中逻辑）：单击=选中、双击=定位，两者共存。
         long now = System.currentTimeMillis();
-        for (PosHit ph : posHits) {
-            if (ix >= ph.x && ix <= ph.x + ph.w && iy >= ph.y && iy <= ph.y + ph.h) {
-                if (ph.index == lastDblIndex && now - lastDblTime < 350) {
+        for (JumpHit jh : jumpHits) {
+            if (ix >= jh.x && ix <= jh.x + jh.w && iy >= jh.y && iy <= jh.y + jh.h) {
+                if (jh.index == lastDblIndex && now - lastDblTime < 350) {
                     Channel c = findChannel(selectedChannel);
-                    if (c != null && ph.index < c.members.size()) {
-                        Member m = c.members.get(ph.index);
+                    if (c != null && jh.index < c.members.size()) {
+                        Member m = c.members.get(jh.index);
                         ClientChannelCache.INSTANCE.addHighlight(m.pos);
                         P2P.LOGGER.info("[p2p] jump-to-block highlight: {}", m.pos);
                         minecraft.setScreen(null);
                         return true;
                     }
                 }
-                lastDblIndex = ph.index;
+                lastDblIndex = jh.index;
                 lastDblTime = now;
-                return true;
+                break; // 单击：继续走整行选中
             }
         }
+        // 面列 = 专属控件：点击循环换面（SET_FACE），命中即消费，不落入整行选中
         for (FaceHit fh : faceHits) {
             if (ix >= fh.x && ix <= fh.x + fh.w && iy >= fh.y && iy <= fh.y + fh.h) {
                 Channel c = findChannel(selectedChannel);
@@ -603,40 +855,98 @@ public class ChannelScreen extends Screen {
                 return true;
             }
         }
+        // 端点行整行（含图标、维度色条、坐标、列间空隙）= 选中语义（1.3.1：真机反馈"有时点不中"，
+        // 命中区从列间空隙扩到整行）；表格内最后一行之下 = 清空。
+        // 行内专属控件（面列换面、IN/OUT 徽牌、优先级、过滤、×）在上面各自的命中循环里已被消费，
+        // 双击定位区单击也会落到这里（单击=选中、双击=定位），选中不会劫持控件点击。
+        // 附属面板接管右栏时不画端点表，这里也必须让位（否则会在看不见的行上“盲选”）。
+        Channel selCh = findChannel(selectedChannel);
+        ChannelScreenExtension selExt = selCh == null ? null : extensionFor(selCh);
+        if (selCh != null && (selExt == null || !selExt.replacesDefaultPanel(selCh))) {
+            int tRowsTop = topPos + TABLE_TOP + TABLE_HEAD;
+            int trx = leftPos + RIGHT_X;
+            if (ix >= trx && ix <= trx + RIGHT_W && iy >= tRowsTop && iy <= topPos + FRAME_BOTTOM) {
+                int idx = (iy - tRowsTop + memberScroll) / ROW_H;
+                if (idx >= 0 && idx < selCh.members.size()) selectEndpoint(selCh, idx);
+                else clearEndpointSelection();
+                return true;
+            }
+        }
         for (Hit h : leftRects) {
             if (ix >= h.x && ix <= h.x + h.w && iy >= h.y && iy <= h.y + h.h) {
                 if (h.kind == 0) {
                     if (openGroups.contains(h.id)) openGroups.remove(h.id); else openGroups.add(h.id);
                     selectedGroup = h.id;      // group headers are selectable; 删除组 targets them first
+                    // 组头行不进入频道选区（1.4.0：分组头不可被选入频道多选）
                 } else {
-                    selectedChannel = h.id;
-                    selectedMember = -1;
+                    selectChannel(h.id);       // 单击=选中并看详情；Ctrl=增减；Shift=范围（锚点=最后单击）
                     selectedGroup = -1;
+                    clearEndpointSelection();  // 换频道后旧频道的选区整体失效
+                    // 1.4.0：双击频道名行 = 打开重命名（第一击已在上面完成选中语义，
+                    // 与端点行"单击=选中、双击=定位"的共存模式一致）
+                    long nowL = System.currentTimeMillis();
+                    if (h.id == lastLeftDblId && nowL - lastLeftDblTime < 350) {
+                        lastLeftDblId = -1;
+                        Channel rc = findChannel(h.id);
+                        if (rc != null)
+                            minecraft.setScreen(new NameInputScreen(this, Lang.t(Lang.UI_RENAME),
+                                    rc.name == null ? "" : rc.name, 0, rc.id, null));
+                    } else {
+                        lastLeftDblId = h.id;
+                        lastLeftDblTime = nowL;
+                    }
                 }
                 saveUiState();
                 return true;
             }
+        }
+        // 1.4.0：左列表空白区（无行处）点击 = 清空频道选区（与 Esc / 快照 reparse 同一清理路径）
+        int llx = leftPos + LEFT_X, lTop = topPos + FRAME_TOP, lBottom = topPos + FRAME_BOTTOM;
+        if (ix >= llx && ix <= llx + LEFT_W && iy >= lTop && iy <= lBottom) {
+            clearChannelSelection();
+            saveUiState();
+            return true;
         }
         return false;
     }
 
     @Override
     public boolean mouseScrolled(double mx, double my, double delta) {
-        int lx = leftPos + 4, lw = 140, listBottom = topPos + H - 26;
-        int rx = leftPos + 148, rw = W - 148 - 4;
-        if (mx >= lx && mx <= lx + lw && my >= topPos + 28 && my <= listBottom)
-            leftScroll = clamp(leftScroll - (int) delta * 16, 0, Math.max(0, leftContentH - (listBottom - (topPos + 28))));
-        else if (mx >= rx && mx <= rx + rw && my >= topPos + 88 && my <= listBottom)
-            memberScroll = clamp(memberScroll - (int) delta * 16, 0, Math.max(0, memberContentH - (listBottom - (topPos + 88 + 18))));
+        ChannelScreenExtension ext = extensionFor(findChannel(selectedChannel));
+        if (ext != null && ext.mouseScrolled(detailContext(), mx, my, 0, delta)) return true;
+        int lx = leftPos + LEFT_X, listTop = topPos + FRAME_TOP, listBottom = topPos + FRAME_BOTTOM;
+        int rx = leftPos + RIGHT_X;
+        int rowsTop = topPos + TABLE_TOP + TABLE_HEAD;
+        if (mx >= lx && mx <= lx + LEFT_W && my >= listTop && my <= listBottom)
+            leftScroll = clamp(leftScroll - (int) delta * ROW_H, 0, Math.max(0, leftContentH - (listBottom - listTop)));
+        else if (mx >= rx && mx <= rx + RIGHT_W && my >= rowsTop && my <= listBottom)
+            memberScroll = clamp(memberScroll - (int) delta * ROW_H, 0, Math.max(0, memberContentH - (listBottom - rowsTop)));
         return true;
     }
 
     @Override
     public boolean keyPressed(int key, int scan, int mods) {
-        if (key == InputConstants.KEY_ESCAPE) { commitRate(); commitSpeed(); minecraft.setScreen(null); return true; }
+        if (key == InputConstants.KEY_ESCAPE) {
+            // Esc 先清空端点选区，再清空频道多选（spec：Esc=清空），都没有才关闭界面
+            if (!selectedEndpoints.isEmpty()) { clearEndpointSelection(); return true; }
+            if (!selectedChannels.isEmpty()) { clearChannelSelection(); saveUiState(); return true; }
+            commitRate(); commitSpeed(); minecraft.setScreen(null); return true;
+        }
         if (key == InputConstants.KEY_RETURN || key == InputConstants.KEY_NUMPADENTER) {
             if (rateEdit.isFocused()) { commitRate(); rateEdit.setFocused(false); return true; }
             if (speedEdit.isFocused()) { commitSpeed(); speedEdit.setFocused(false); return true; }
+        }
+        // 端点多选快捷键：输入框聚焦时交给输入框（Ctrl+A 全选文本等语义优先）
+        boolean typing = (searchBox != null && searchBox.isFocused())
+                || rateEdit.isFocused() || speedEdit.isFocused();
+        if (!typing && Screen.hasControlDown()) {
+            if (key == InputConstants.KEY_C) { copyEndpointConfig(); return true; }
+            if (key == InputConstants.KEY_V) { pasteEndpointConfig(); return true; }
+            if (key == InputConstants.KEY_A) {
+                // Ctrl+A：端点选区非空时全选端点（1.3.0 语义），否则全选当前网络可见频道（1.4.0）
+                if (selectedEndpoints.isEmpty()) selectAllChannels(); else selectAllEndpoints();
+                return true;
+            }
         }
         return super.keyPressed(key, scan, mods);
     }
@@ -678,13 +988,19 @@ public class ChannelScreen extends Screen {
 
     private void sendAction(ChannelActionC2SPacket.Action action, int val) {
         if (selectedChannel < 0) return;
-        ModMessages.INSTANCE.sendToServer(new ChannelActionC2SPacket(selectedChannel, action, null, val, null, false, null, ""));
+        ModMessages.sendToServer(new ChannelActionC2SPacket(selectedChannel, action, null, val, null, false, null, ""));
     }
 
+    /**
+     * 「分组」pill：多选时把所选组应用到全部选中频道（含「（无分组）」= 批量移出组），
+     * 单选时行为与 1.3.x 一致。逐频道复用既有 SET_GROUP 动作，不新增 payload。
+     */
     private void openGroupSelect() {
+        List<Integer> targets = batchChannelIds();
+        if (targets.isEmpty()) return;
         Channel c = findChannel(selectedChannel);
-        if (c == null) return;
-        minecraft.setScreen(new GroupSelectScreen(this, selectedChannel, c.groupId, groups));
+        // 勾选基准 = 最后选中频道的当前组
+        minecraft.setScreen(new GroupSelectScreen(this, targets, c == null ? -1 : c.groupId, groups));
     }
 
     private void cycleType() {
@@ -693,15 +1009,16 @@ public class ChannelScreen extends Screen {
         List<Medium> vals = Mediums.all();
         int idx = vals.indexOf(c.type);
         Medium next = vals.get(Math.floorMod(idx + 1, vals.size()));
-        ModMessages.INSTANCE.sendToServer(new ChannelActionC2SPacket(c.id, ChannelActionC2SPacket.Action.SET_TYPE, next.id, 0, null, false, null, ""));
+        ModMessages.sendToServer(new ChannelActionC2SPacket(c.id, ChannelActionC2SPacket.Action.SET_TYPE, next.id, 0, null, false, null, ""));
     }
 
     private void pageNet(int dir) {
         if (nets.isEmpty()) return;
         netIndex = Math.max(0, Math.min(nets.size() - 1, netIndex + dir));
         selectedChannel = -1;
-        selectedMember = -1;
         selectedGroup = -1;
+        clearEndpointSelection();
+        clearChannelSelection();   // 换网络后频道多选同样失效
         saveUiState();
     }
 
@@ -715,29 +1032,218 @@ public class ChannelScreen extends Screen {
         Channel c = findChannel(selectedChannel);
         if (c == null) return;
         int target = (m.role == Role.INPUT) ? Role.OUTPUT.ordinal() : Role.INPUT.ordinal();
-        ModMessages.INSTANCE.sendToServer(new ChannelActionC2SPacket(c.id, ChannelActionC2SPacket.Action.SET_ROLE, null, target, m.key(), false, null, ""));
+        ModMessages.sendToServer(new ChannelActionC2SPacket(c.id, ChannelActionC2SPacket.Action.SET_ROLE, null, target, m.key(), false, null, ""));
     }
 
     /** Send REMOVE_MEMBER to the server and drop the row locally for instant feedback. */
     private void removeMember(Member m) {
         Channel c = findChannel(selectedChannel);
         if (c == null) return;
-        ModMessages.INSTANCE.sendToServer(new ChannelActionC2SPacket(c.id, ChannelActionC2SPacket.Action.REMOVE_MEMBER, null, 0, m.key(), false, null, ""));
+        ModMessages.sendToServer(new ChannelActionC2SPacket(c.id, ChannelActionC2SPacket.Action.REMOVE_MEMBER, null, 0, m.key(), false, null, ""));
         c.members.remove(m);
-        selectedMember = -1;
+        selectedEndpoints.remove(m.key());
+        if (m.key().equals(selLastKey)) selLastKey = null;
     }
 
-    /** Faux bevel button with red text, used for destructive row actions. */
-    private void addDanger(GuiGraphics gg, int bx, int by, int bw, int bh, String label) {
-        gg.fill(bx, by, bx + bw, by + bh, P2PGuiTextures.FAUX_BTN);
-        gg.fill(bx, by, bx + bw, by + 1, HI);
-        gg.fill(bx, by, bx + 1, by + bh, HI);
-        gg.fill(bx, by + bh - 1, bx + bw, by + bh, SH);
-        gg.fill(bx + bw - 1, by, bx + bw, by + bh, SH);
-        gg.drawString(this.font, Component.literal(label), bx + (bw - this.font.width(label)) / 2, by + 4, P2PGuiTextures.DANGER, false);
+    // ============================================================ channel selection (1.4.0)
+    /** 清空频道多选（Esc / 点击列表空白 / 快照 reparse / 切网络共用，复用端点选区的清理模式）。 */
+    private void clearChannelSelection() {
+        selectedChannels.clear();
+        chAnchorId = -1;
+        lastLeftDblId = -1;
+    }
+
+    /**
+     * 左列表频道行单击语义：普通单击=单选替换并查看详情；Ctrl+单击=增减多选；Shift+单击=
+     * 从锚点（最后单击的频道）到当前行的范围选择。组头行不可进入本方法。
+     */
+    private void selectChannel(int id) {
+        boolean ctrl = Screen.hasControlDown();
+        boolean shift = Screen.hasShiftDown();
+        if (shift && chAnchorId >= 0) {
+            // 范围以当前可见行序为准（搜索过滤后的 buildLeftRows 顺序）
+            List<Integer> visible = new ArrayList<>();
+            for (LeftRow r : buildLeftRows()) if (r.kind == 1) visible.add(r.id);
+            int a = visible.indexOf(chAnchorId), b = visible.indexOf(id);
+            if (a >= 0 && b >= 0) {
+                if (!ctrl) selectedChannels.clear();
+                for (int i = Math.min(a, b); i <= Math.max(a, b); i++) selectedChannels.add(visible.get(i));
+            } else {
+                selectedChannels.clear();
+                selectedChannels.add(id);
+            }
+        } else if (ctrl) {
+            if (!selectedChannels.remove(id)) selectedChannels.add(id);
+        } else {
+            selectedChannels.clear();
+            selectedChannels.add(id);
+        }
+        selectedChannel = id;   // 详情区 / 非批量 pill 始终跟随最后单击的频道
+        chAnchorId = id;
+    }
+
+    /** Ctrl+A（端点无选区时）：全选当前网络可见频道（搜索过滤后的全部频道行）。 */
+    private void selectAllChannels() {
+        for (LeftRow r : buildLeftRows()) if (r.kind == 1) selectedChannels.add(r.id);
+    }
+
+    /**
+     * 批量动作目标集合：多选集合里仍存在的频道；无多选时回退为最后单击的单个频道
+     * （单选行为与 1.3.x 完全一致）。
+     */
+    private List<Integer> batchChannelIds() {
+        List<Integer> out = new ArrayList<>();
+        if (!selectedChannels.isEmpty()) {
+            for (Channel c : channels) if (selectedChannels.contains(c.id)) out.add(c.id);
+        } else if (selectedChannel >= 0 && findChannel(selectedChannel) != null) {
+            out.add(selectedChannel);
+        }
+        return out;
+    }
+
+    /**
+     * 「删除频道」：对选中集生效（多选批量 / 单选单个）。逐频道复用既有 DELETE 动作，
+     * 与用户既有偏好一致不弹确认框；本地同步摘除被删频道以便即时反馈（服务端随后推送同步）。
+     */
+    private void deleteSelectedChannels() {
+        List<Integer> targets = batchChannelIds();
+        if (targets.isEmpty()) return;
+        for (int id : targets)
+            ModMessages.sendToServer(new ChannelActionC2SPacket(id, ChannelActionC2SPacket.Action.DELETE, null, 0, null, false, null, ""));
+        channels.removeIf(c -> targets.contains(c.id));
+        selectedChannels.clear();
+        chAnchorId = -1;
+        if (targets.contains(selectedChannel))
+            selectedChannel = channels.isEmpty() ? -1 : channels.get(0).id;
+        saveUiState();
+    }
+
+    // ============================================================ endpoint selection + copy/paste
+    private void clearEndpointSelection() {
+        selectedEndpoints.clear();
+        selAnchor = -1;
+        selLastKey = null;
+    }
+
+    /**
+     * 单击行空白区：普通单击=单选替换；Ctrl+单击=增减多选；Shift+单击=从锚点行到当前行的
+     * 范围选中（配合 Ctrl 则追加范围）。行内控件的点击不会进入这里（已被控件命中消费）。
+     */
+    private void selectEndpoint(Channel c, int idx) {
+        String key = c.members.get(idx).key();
+        boolean ctrl = Screen.hasControlDown();
+        boolean shift = Screen.hasShiftDown();
+        if (shift && selAnchor >= 0 && selAnchor < c.members.size()) {
+            if (!ctrl) selectedEndpoints.clear();
+            for (int i = Math.min(selAnchor, idx); i <= Math.max(selAnchor, idx); i++)
+                selectedEndpoints.add(c.members.get(i).key());
+        } else if (ctrl) {
+            if (!selectedEndpoints.remove(key)) selectedEndpoints.add(key);
+        } else {
+            selectedEndpoints.clear();
+            selectedEndpoints.add(key);
+        }
+        selAnchor = idx;
+        selLastKey = key;
+    }
+
+    /** Ctrl+A：全选当前频道的所有端点。 */
+    private void selectAllEndpoints() {
+        Channel c = findChannel(selectedChannel);
+        if (c == null || c.members.isEmpty()) return;
+        for (Member m : c.members) selectedEndpoints.add(m.key());
+        selAnchor = -1;
+        if (selLastKey == null) selLastKey = c.members.get(0).key();
+    }
+
+    /**
+     * Ctrl+C：复制“最后选中”（多选时即最后一次点选；否则唯一选中）端点的配置 =
+     * 完整过滤 NBT（含 addon 段，原样序列化）+ 优先级 + 流向。剪贴板是 static 的，
+     * 允许在频道 A 复制、打开频道 B 再粘贴。
+     */
+    private void copyEndpointConfig() {
+        Channel c = findChannel(selectedChannel);
+        if (c == null || selectedEndpoints.isEmpty()) return;
+        Member src = null;
+        if (selLastKey != null)
+            for (Member m : c.members) if (m.key().equals(selLastKey)) { src = m; break; }
+        if (src == null)
+            for (Member m : c.members) if (selectedEndpoints.contains(m.key())) { src = m; break; }
+        if (src == null) { clearEndpointSelection(); return; }
+        Filter f = src.role == Role.INPUT ? src.extractFilter : src.insertFilter;
+        clipFilterTag = f == null ? null : f.serializeNBT();
+        clipPriority = src.priority;
+        clipInput = src.role == Role.INPUT;
+        clipValid = true;
+    }
+
+    /** 剪贴板是否有内容可粘贴。 */
+    private static boolean clipValid = false;
+
+    /**
+     * Ctrl+V：把剪贴板配置应用到当前频道的所有选中端点。逐端点复用既有
+     * {@link ChannelActionC2SPacket}：SET_ROLE → SET_FILTER → SET_PRIORITY。
+     * 流向先落位、过滤器随后按「粘贴之后的目标方向」（extract 侧以目标为准）放进对应一侧，
+     * 这样来源 IN / 目标 OUT 的跨方向粘贴，过滤器最终仍在目标实际使用的那一侧生效。
+     * 目标全部来自当前频道成员，天然满足「一次粘贴只作用于同一频道」。
+     */
+    private void pasteEndpointConfig() {
+        Channel c = findChannel(selectedChannel);
+        if (c == null || selectedEndpoints.isEmpty() || !clipValid) return;
+        int roleOrd = clipInput ? Role.INPUT.ordinal() : Role.OUTPUT.ordinal();
+        for (Member m : c.members) {
+            if (!selectedEndpoints.contains(m.key())) continue;
+            ModMessages.sendToServer(new ChannelActionC2SPacket(c.id,
+                    ChannelActionC2SPacket.Action.SET_ROLE, null, roleOrd, m.key(), false, null, ""));
+            // 无过滤器的来源也要发（服务端把 null tag 解释为清空），
+            // 否则来源没配过滤时“粘贴配置”会静默丢掉“清除目标旧过滤”这半边语义。
+            ModMessages.sendToServer(new ChannelActionC2SPacket(c.id,
+                    ChannelActionC2SPacket.Action.SET_FILTER, null, 0, m.key(), clipInput,
+                    clipFilterTag == null ? null : clipFilterTag.copy(), ""));
+            ModMessages.sendToServer(new ChannelActionC2SPacket(c.id,
+                    ChannelActionC2SPacket.Action.SET_PRIORITY, null, clipPriority, m.key(), false, null, ""));
+        }
     }
 
     // ============================================================ helpers
+    /** The per-medium detail-panel extension registered for this channel (null = vanilla layout). */
+    @Nullable
+    private static ChannelScreenExtension extensionFor(@Nullable Channel c) {
+        if (c == null || c.type == null) return null;
+        return ChannelScreenExtensions.get(c.type.id);
+    }
+
+    /** Fresh facade over the current panel geometry — rebuilt per callback so window resizes are honoured. */
+    private DetailContext detailContext() {
+        return new DetailContext(leftPos, topPos, W, H, leftPos + RIGHT_X, RIGHT_W,
+                this.font, this.minecraft, pkt -> ModMessages.sendToServer(pkt));
+    }
+
+    /** In-row faux control (priority / filter): rounded FIELD plate + centred label, hit tested in mouseClicked. */
+    private void addFaux(GuiGraphics gg, int x, int y, int w, int bg, String label, int ink) {
+        P2PTheme.drawPill(gg, x, y, w, 12, bg);
+        P2PTheme.drawCentered(gg, this.font, Component.literal(label), x, y + 2, w, ink);
+    }
+
+    private static Component distLabel(Channel.Distribution d) {
+        return switch (d) {
+            case PRIORITY -> Lang.t(Lang.UI_DIST_PRIORITY);
+            case NEAREST -> Lang.t(Lang.UI_DIST_NEAREST);
+            case FARTHEST -> Lang.t(Lang.UI_DIST_FARTHEST);
+            case SPLIT_EVENLY -> Lang.t(Lang.UI_DIST_SPLIT);
+            default -> Lang.t(Lang.UI_DIST_ROUND);
+        };
+    }
+
+    private static Component redstoneLabel(Channel.RedstoneMode m) {
+        return switch (m) {
+            case HIGH -> Lang.t(Lang.UI_RED_HIGH);
+            case LOW -> Lang.t(Lang.UI_RED_LOW);
+            case NEVER -> Lang.t(Lang.UI_RED_NEVER);
+            default -> Lang.t(Lang.UI_RED_IGNORE);
+        };
+    }
+
     private Component groupLabel(int gid) {
         if (gid < 0) return Lang.t(Lang.UI_GROUP_NONE);
         for (Group g : groups) if (g.id == gid) return Component.literal(g.name);
@@ -771,25 +1277,6 @@ public class ChannelScreen extends Screen {
         return t.displayName();
     }
 
-    private static Component distLabel(Channel.Distribution d) {
-        return switch (d) {
-            case PRIORITY -> Lang.t(Lang.UI_DIST_PRIORITY);
-            case NEAREST -> Lang.t(Lang.UI_DIST_NEAREST);
-            case FARTHEST -> Lang.t(Lang.UI_DIST_FARTHEST);
-            case SPLIT_EVENLY -> Lang.t(Lang.UI_DIST_SPLIT);
-            default -> Lang.t(Lang.UI_DIST_ROUND);
-        };
-    }
-
-    private static Component redstoneLabel(Channel.RedstoneMode m) {
-        return switch (m) {
-            case HIGH -> Lang.t(Lang.UI_RED_HIGH);
-            case LOW -> Lang.t(Lang.UI_RED_LOW);
-            case NEVER -> Lang.t(Lang.UI_RED_NEVER);
-            default -> Lang.t(Lang.UI_RED_IGNORE);
-        };
-    }
-
     /** Format a per-second rate for display: 1M / 100k / 2.5G; display-only, never changes the stored value. */
     private static String formatPerSec(int rate, int speed) {
         long perSec = (long) rate * 20 / Math.max(1, speed);
@@ -811,7 +1298,7 @@ public class ChannelScreen extends Screen {
         if (c == null) return;
         Direction[] dirs = Direction.values();
         Direction next = dirs[(m.face.get3DDataValue() + 1) % dirs.length];
-        ModMessages.INSTANCE.sendToServer(new ChannelActionC2SPacket(c.id, ChannelActionC2SPacket.Action.SET_FACE,
+        ModMessages.sendToServer(new ChannelActionC2SPacket(c.id, ChannelActionC2SPacket.Action.SET_FACE,
                 null, next.get3DDataValue(), m.key(), false, null, ""));
         int i = c.members.indexOf(m);
         if (i >= 0) c.members.set(i, m.withFace(next));
@@ -825,10 +1312,7 @@ public class ChannelScreen extends Screen {
     }
 
     private static int dimColor(String dim) {
-        if (dim.contains("nether")) return 0x8a3423;
-        if (dim.contains("end")) return 0x5b4a7a;
-        if (!dim.startsWith("minecraft:")) return 0x2f6d7a;   // modded dimension
-        return 0x3f6d32;
+        return P2PTheme.dimColor(dim);
     }
 
     /** Two-character dimension label that fits the endpoint row; the full id is available as a tooltip. */
@@ -860,25 +1344,23 @@ public class ChannelScreen extends Screen {
         return s + "…";
     }
 
-    private void inset(GuiGraphics gg, int x, int y, int w, int h) {
-        gg.fill(x, y, x + w, y + 1, SH);
-        gg.fill(x, y, x + 1, y + h, SH);
-        gg.fill(x, y + h - 1, x + w, y + h, HI);
-        gg.fill(x + w - 1, y, x + w, y + h, HI);
-    }
-
-    private void typeTag(GuiGraphics gg, int bx, int by, Medium t) {
-        int col = typeColor(t);
-        gg.fill(bx, by, bx + 28, by + 11, col);
-        gg.fill(bx, by, bx + 28, by + 1, 0x55ffffff & 0xFFFFFFFF);
-        gg.drawString(this.font, typeLabel(t), bx + 4, by + 2, 0xFFFFFFFF);
+    /** Medium tag: right-aligned chip that shrinks to the label width (capped), long names ellipsise. */
+    private void typeTag(GuiGraphics gg, int bx, int by, @Nullable Medium t) {
+        if (t == null) return;
+        Component label = typeLabel(t);
+        int textWidth = this.font.width(label);
+        int tagWidth = Math.min(textWidth + 8, 56);
+        int x = bx + 56 - tagWidth;
+        P2PTheme.chip(gg, x, by, tagWidth, 11, typeColor(t));
+        Component shown = textWidth + 8 > tagWidth ? Component.literal(trim(label.getString(), tagWidth - 8)) : label;
+        gg.drawString(this.font, shown, x + (tagWidth - this.font.width(shown)) / 2, by + 2, 0xFFFFFFFF, false);
     }
 
     private record LeftRow(int kind, int id, String label, Medium type, int color, boolean child) {}
     private record Hit(int x, int y, int w, int h, int kind, int id) {}
     private record MemberBtn(int index, int kind, int x, int y, int w, int h) {}
-    private record PosHit(int index, int x, int y, int w, int h) {}
-    private record DimHit(String dim, int x, int y, int w, int h) {}
+    private record JumpHit(int index, int x, int y, int w, int h) {}
+    private record DimHit(String dim, EndpointState state, int x, int y, int w, int h) {}
     private record FaceHit(int index, int x, int y, int w, int h) {}
     private record BlockHit(int index, int x, int y, int w, int h, ItemStack icon) {}
 }

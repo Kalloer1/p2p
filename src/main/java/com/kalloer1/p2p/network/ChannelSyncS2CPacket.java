@@ -1,11 +1,7 @@
 package com.kalloer1.p2p.network;
 
-import com.kalloer1.p2p.P2P;
-import com.kalloer1.p2p.client.ClientChannelCache;
-import com.kalloer1.p2p.client.ClientBindState;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraftforge.network.NetworkEvent;
 
 import java.util.function.Supplier;
 
@@ -17,24 +13,19 @@ public class ChannelSyncS2CPacket {
         this.data = data;
     }
 
-    public void toBytes(FriendlyByteBuf buf) {
-        buf.writeNbt(data);
-    }
-
     public ChannelSyncS2CPacket(FriendlyByteBuf buf) {
         this.data = buf.readNbt();
     }
 
-    public void handle(Supplier<NetworkEvent.Context> ctx) {
-        ctx.get().enqueueWork(() -> {
-            ClientChannelCache.INSTANCE.setData(data);
-            // 同步"当前绑定频道"到客户端镜像，供 HUD / 高亮使用
-            if (data.contains("boundChannel")) ClientBindState.setBoundChannel(data.getInt("boundChannel"));
-            P2P.LOGGER.info("[p2p] ChannelSyncS2CPacket (client): nets={} groups={} channels={} boundChannel={}",
-                    data.getList("networks", net.minecraft.nbt.Tag.TAG_COMPOUND).size(),
-                    data.getList("groups", net.minecraft.nbt.Tag.TAG_COMPOUND).size(),
-                    data.getList("channels", net.minecraft.nbt.Tag.TAG_COMPOUND).size());
-        });
-        ctx.get().setPacketHandled(true);
+    public void toBytes(FriendlyByteBuf buf) {
+        buf.writeNbt(data);
+    }
+
+    public CompoundTag data() {
+        return data;
+    }
+
+    public void handle(Supplier<net.minecraftforge.network.NetworkEvent.Context> ctx) {
+        ctx.get().enqueueWork(() -> ModMessages.handleChannelSync(this));
     }
 }

@@ -15,11 +15,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 介质注册表（双端一致）。内置三种介质在 {@link RegisterMediumEvent} 里由主模组自己注册；
- * 附属模组监听同一事件注册它们的介质（如 mekanism:gas / mekanism:heat）。
+ * 介质注册表（双端一致）。内置三种介质在本类的静态字段里直接注册；
+ * 附属模组注册自己介质（如 mekanism:gas）的<b>唯一契约</b>是在自己的
+ * {@code @Mod} 构造函数里直接调用 {@link #register(Medium)}——注册幂等、构造期
+ * 调用时机最早最稳，本体不提供也不派发任何注册事件。
  *
- * <p>事件在 {@code FMLLoadCompleteEvent} 的 enqueueWork 里派发——此时所有 mod 的 mod-bus
- * 监听器都已注册完毕，不存在 mod 顺序问题。双端各自派发，所以客户端注册表与服务端天然一致，
+ * <p>附属与本体在同一 JVM 双侧加载，注册表在类初始化时即建成，客户端与服务端天然一致，
  * 无需网络同步介质清单。
  */
 public final class Mediums {

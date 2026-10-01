@@ -7,9 +7,11 @@ modId="${mod_id}"
 version="${mod_version}"
 displayName="${mod_name}"
 authors="${mod_authors}"
-description='''${mod_description}'''
+description='''
+P2P 点对点传输：跨维度连接容器、流体、能量与自定义介质的服务端权威频道模组。
+'''
 displayTest="IGNORE_SERVER_VERSION"
-logoFile="logo.png" 
+#logoFile="logo.png"
 
 [[dependencies.${mod_id}]]
     modId="forge"

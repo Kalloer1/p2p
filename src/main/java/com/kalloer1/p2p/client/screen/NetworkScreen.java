@@ -18,17 +18,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Standalone "network picker" page (opened from the ChannelScreen top tab via the < > arrows' companion
- * button, or directly). Lists every network the player can see — including other players' networks when
- * the player is an admin/member of them — and jumps into ChannelScreen for the chosen one.
- * Kept separate from the channel panel so the 384×208 ceiling is never exceeded.
+ * Standalone "network picker" page (opened from the ChannelScreen navigation row's network pill).
+ * Lists every network the player can see — including other players' networks when the player is an
+ * admin/member of them — and jumps into ChannelScreen for the chosen one.
+ *
+ * <p>1.2.0 skin: masked dialog + rounded white card, two-line iOS list rows (name + role/count footnote).
  */
 public class NetworkScreen extends Screen {
 
-    private static final int W = 384, H = 208;
-    private static final int STONE = P2PGuiTextures.ROW_BG, HI = P2PGuiTextures.FAUX_HI, SH = P2PGuiTextures.FAUX_SH;
-    private static final int ROW_BG = P2PGuiTextures.ROW_BG, SEL = P2PGuiTextures.SEL, TAB = P2PGuiTextures.TAB_BG;
-    private static final int INK = P2PGuiTextures.INK, INK_DIM = P2PGuiTextures.INK_DIM, TITLE = P2PGuiTextures.TITLE;
+    private static final int W = 384, H = 216;
+    private static final int ROW_H = 30;
+    private static final int LIST_TOP = 30;
+    private static final int BTN_Y = H - 26;
+    private static final int LIST_BOTTOM = BTN_Y - 6;
 
     private int leftPos, topPos;
     private final List<Network> nets = new ArrayList<>();
@@ -46,9 +48,17 @@ public class NetworkScreen extends Screen {
         leftPos = (this.width - W) / 2;
         topPos = (this.height - H) / 2;
         load();
-        openBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_ENTER_NETWORK), b -> enter()).bounds(leftPos + W - 180, topPos + H - 24, 84, 20)));
-        cancelBtn = addRenderableWidget(new P2PFlatButton(Button.builder(Lang.t(Lang.UI_BACK), b -> minecraft.setScreen(new ChannelScreen())).bounds(leftPos + W - 92, topPos + H - 24, 84, 20)));
-        ModMessages.INSTANCE.sendToServer(new RequestChannelsC2SPacket());
+        openBtn = textButton(Lang.t(Lang.UI_ENTER_NETWORK), b -> enter(), true);
+        cancelBtn = textButton(Lang.t(Lang.UI_BACK), b -> minecraft.setScreen(new ChannelScreen()), false);
+        ModMessages.sendToServer(new RequestChannelsC2SPacket());
+    }
+
+    private Button textButton(Component label, Button.OnPress action, boolean trailingRight) {
+        int w = this.font.width(label) + 12;
+        int x = trailingRight ? leftPos + W - P2PTheme.PAD - w : leftPos + P2PTheme.PAD;
+        P2PFlatButton b = new P2PFlatButton(Button.builder(label, action).bounds(x, topPos + BTN_Y, w, 14));
+        b.setStyle(P2PFlatButton.Style.TEXT);
+        return addRenderableWidget(b);
     }
 
     private void load() {
@@ -76,44 +86,41 @@ public class NetworkScreen extends Screen {
         super.render(gg, mx, my, pt);
     }
 
+    @Override
+    public void renderBackground(GuiGraphics gg) {
+        // no-op: drawPanel() already covers the screen
+    }
+
     private void drawPanel(GuiGraphics gg) {
         int x = leftPos, y = topPos;
-        gg.fill(0, 0, this.width, this.height, 0x66000000);
+        P2PTheme.dialog(gg, this.width, this.height, x, y, W, H, this.font, Lang.t(Lang.UI_SELECT_NETWORK));
+        P2PTheme.drawCentered(gg, this.font, Lang.t(Lang.UI_SHARE_HINT), x, y + 19, W, P2PTheme.TEXT_TERT);
 
-        // top tab
-        int ty = y - 16;
-        gg.fill(x, ty, x + W, ty + 16, TAB);
-        gg.fill(x, ty, x + W, ty + 1, HI);
-        gg.drawString(this.font, Lang.t(Lang.UI_SELECT_NETWORK), x + 6, ty + 4, TITLE, false);
-        gg.drawString(this.font, Lang.t(Lang.UI_SHARE_HINT), x + W / 2 - 84, ty + 4, 0xFFB8BEC4, false);
-
-        // main panel from atlas (9-slice)
-        P2PGuiTextures.panel(gg, x, y, W, H);
-
-        int listTop = y + 8, listBottom = y + H - 30, rowH = 26;
+        int listTop = y + LIST_TOP, listBottom = y + LIST_BOTTOM;
         int listH = listBottom - listTop;
-        gg.fill(x + 4, listTop, x + W - 4, listBottom, ROW_BG);
-        inset(gg, x + 4, listTop, W - 8, listH);
 
-        contentH = nets.size() * rowH;
+        contentH = nets.size() * ROW_H;
         scroll = clamp(scroll, 0, Math.max(0, contentH - listH));
         rows.clear();
+        gg.enableScissor(x + 1, listTop, x + W - 1, listBottom);
         int baseY = listTop - scroll;
         for (int i = 0; i < nets.size(); i++) {
-            int ry = baseY + i * rowH;
-            if (ry + rowH <= listTop) continue;
+            int ry = baseY + i * ROW_H;
+            if (ry + ROW_H <= listTop) continue;
             if (ry > listBottom) break;
             Network n = nets.get(i);
-            boolean sel = i == selected;
-            if (sel) gg.fill(x + 5, ry + 1, x + W - 5, ry + rowH - 1, SEL);
-            gg.drawString(this.font, Component.literal(trim(n.name, 180)), x + 10, ry + 4, INK, false);
+            if (i == selected) gg.fill(x + 1, ry, x + W - 1, ry + ROW_H, P2PTheme.CARD_SEL);
+            gg.drawString(this.font, Component.literal(trim(n.name, W - 64)), x + P2PTheme.PAD, ry + 5,
+                    P2PTheme.TEXT_PRIMARY, false);
             String role = roleOf(n);
             String meta = Lang.t(Lang.UI_CHANNEL_COUNT, chanCounts.get(i)).getString() + (role.isEmpty() ? "" : "  ·  " + role);
-            gg.drawString(this.font, Component.literal(meta), x + 10, ry + 16, INK_DIM, false);
-            rows.add(new Hit(x + 5, ry + 1, W - 10, rowH - 1, i));
+            gg.drawString(this.font, Component.literal(meta), x + P2PTheme.PAD, ry + 17, P2PTheme.TEXT_SECOND, false);
+            rows.add(new Hit(x + 1, ry, W - 2, ROW_H, i));
+            gg.fill(x + P2PTheme.PAD, ry + ROW_H - 1, x + W - P2PTheme.PAD, ry + ROW_H, P2PTheme.SEPARATOR);
         }
+        gg.disableScissor();
         if (nets.isEmpty())
-            gg.drawString(this.font, Lang.t(Lang.UI_NO_NETWORK), x + 12, listTop + 12, INK_DIM, false);
+            gg.drawString(this.font, Lang.t(Lang.UI_NO_NETWORK), x + P2PTheme.PAD, listTop + 12, P2PTheme.TEXT_SECOND, false);
     }
 
     /** 本机玩家在该网络里的身份：拥有者 / 管理员 / 共享（被邀请加入）。 */
@@ -134,19 +141,18 @@ public class NetworkScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mx, double my, int button) {
-        if (super.mouseClicked(mx, my, button)) return true;
         int ix = (int) mx, iy = (int) my;
         for (Hit h : rows) {
             if (ix >= h.x && ix <= h.x + h.w && iy >= h.y && iy <= h.y + h.h) { selected = h.id; return true; }
         }
-        return false;
+        return super.mouseClicked(mx, my, button);
     }
 
     @Override
     public boolean mouseScrolled(double mx, double my, double delta) {
-        int listTop = topPos + 8, listBottom = topPos + H - 30;
-        if (mx >= leftPos + 4 && mx <= leftPos + W - 4 && my >= listTop && my <= listBottom)
-            scroll = clamp(scroll - (int) delta * 26, 0, Math.max(0, contentH - (listBottom - listTop)));
+        int listTop = topPos + LIST_TOP, listBottom = topPos + LIST_BOTTOM;
+        if (mx >= leftPos + 1 && mx <= leftPos + W - 1 && my >= listTop && my <= listBottom)
+            scroll = clamp(scroll - (int) delta * ROW_H, 0, Math.max(0, contentH - (listBottom - listTop)));
         return true;
     }
 
@@ -157,17 +163,13 @@ public class NetworkScreen extends Screen {
     }
 
     private static int clamp(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
+
     private String trim(String s, int maxPx) {
         if (s == null) return "";
         if (this.font.width(s) <= maxPx) return s;
         while (this.font.width(s + "…") > maxPx && s.length() > 1) s = s.substring(0, s.length() - 1);
         return s + "…";
     }
-    private void inset(GuiGraphics gg, int x, int y, int w, int h) {
-        gg.fill(x, y, x + w, y + 1, SH);
-        gg.fill(x, y, x + 1, y + h, SH);
-        gg.fill(x, y + h - 1, x + w, y + h, HI);
-        gg.fill(x + w - 1, y, x + w, y + h, HI);
-    }
+
     private record Hit(int x, int y, int w, int h, int id) {}
 }

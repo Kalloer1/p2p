@@ -16,7 +16,6 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraftforge.event.TickEvent;
@@ -30,11 +29,14 @@ import net.minecraftforge.fml.common.Mod;
  * Forge bus. Two responsibilities:
  *
  * <ol>
- *   <li>绑定模式拦截：玩家在绑定模式下空手点击方块时，<b>客户端与服务端两侧</b>都取消原版的交互 / 破坏，
- *       改由 {@link BindClickC2SPacket} 把这次点击带给服务端（右键=输入 / 左键=输出 / Ctrl=连锁）。
+ *   <li>绑定模式拦截：玩家在绑定模式下<b>空手</b>（主手与副手均无物品）点击方块时，<b>客户端与服务端两侧</b>都取消原版的
+ *       交互 / 破坏，改由 {@link BindClickC2SPacket} 把这次点击带给服务端（右键=输入 / 左键=输出 / Ctrl=连锁）。
  *       只取消客户端不够——创作模式的服务端 {@code handleBlockBreakAction} 仍会按收到的
  *       {@code START_DESTROY_BLOCK} 包拆掉方块，生存模式的服务端 {@code useItemOn} 仍会与方块交互，
- *       所以服务端这一侧也必须拦截。真正的绑定动作由 {@link BindClickC2SPacket} 在服务端处理。</li>
+ *       所以服务端这一侧也必须拦截。真正的绑定动作由 {@link BindClickC2SPacket} 在服务端处理。
+ *       1.3.1 起（真机反馈：绑定模式下误放置 / 误使用积出"虚空端点"）拦截范围扩大到
+ *       <b>一切非空手交互</b>：持有物品时的左右键方块、使用物品、放置方块、实体交互在两侧全部取消，
+ *       只有空手点击才放行绑定发包路径。</li>
  *   <li>存档加载：ChannelManager 挂在主世界 SavedData 上，所有网络 / 频道 / 端点随游戏存档持久化。</li>
  * </ol>
  *
@@ -106,46 +108,81 @@ public class ServerEvents {
     public static void onLeftClickBlock(PlayerInteractEvent.LeftClickBlock evt) {
         Player player = evt.getEntity();
         if (player == null) return;
-        if (evt.getHand() != InteractionHand.MAIN_HAND) return;
-        if (!player.getMainHandItem().isEmpty()) return;
-
         if (evt.getLevel().isClientSide()) {
-            // 客户端：取消原版破坏表现，并通知服务端执行绑定
+            // 客户端：取消原版破坏表现；空手时才通知服务端执行绑定
             if (!ClientBindState.isActive()) return;
             evt.setCanceled(true);
-            evt.setCancellationResult(InteractionResult.CONSUME);
-            ModMessages.INSTANCE.sendToServer(
+            if (evt.getHand() != InteractionHand.MAIN_HAND) return;
+            if (!hasEmptyHands(player)) return;
+            ModMessages.sendToServer(
                     new BindClickC2SPacket(evt.getPos(), evt.getFace(), false, Screen.hasControlDown()));
         } else {
-            // 服务端：玩家处于绑定模式时空手左键不能拆方块（绑定动作由 BindClickC2SPacket 完成）
+            // 服务端：绑定模式下左键一律不能拆方块（绑定动作由 BindClickC2SPacket 完成）
             if (!(player instanceof ServerPlayer sp)) return;
             if (!ChannelManager.INSTANCE.isBindModeActive(sp)) return;
             evt.setCanceled(true);
-            evt.setCancellationResult(InteractionResult.CONSUME);
         }
     }
 
-    /** 右键：绑定模式下空手点击 = 设置输入（INPUT）。两侧都取消原版交互，避免打开容器 GUI。 */
+    /** 右键方块：绑定模式下空手点击 = 设置输入（INPUT）。两侧都取消原版交互，避免打开容器 GUI / 放置抖动。 */
     @SubscribeEvent
     public static void onRightClickBlock(PlayerInteractEvent.RightClickBlock evt) {
         Player player = evt.getEntity();
         if (player == null) return;
-        if (evt.getHand() != InteractionHand.MAIN_HAND) return;
-        if (!player.getMainHandItem().isEmpty()) return;
-
         if (evt.getLevel().isClientSide()) {
-            // 客户端：取消原版交互，并通知服务端执行绑定
+            // 客户端：取消原版交互（含方块放置，防抖动）；空手主手才通知服务端执行绑定
             if (!ClientBindState.isActive()) return;
             evt.setCanceled(true);
-            evt.setCancellationResult(InteractionResult.CONSUME);
-            ModMessages.INSTANCE.sendToServer(
+            if (evt.getHand() != InteractionHand.MAIN_HAND) return;
+            if (!hasEmptyHands(player)) return;
+            ModMessages.sendToServer(
                     new BindClickC2SPacket(evt.getPos(), evt.getFace(), true, Screen.hasControlDown()));
         } else {
-            // 服务端：玩家处于绑定模式时空手右键不能与方块交互（绑定动作由 BindClickC2SPacket 完成）
+            // 服务端：绑定模式下右键方块一律取消（绑定动作由 BindClickC2SPacket 完成）
             if (!(player instanceof ServerPlayer sp)) return;
             if (!ChannelManager.INSTANCE.isBindModeActive(sp)) return;
             evt.setCanceled(true);
-            evt.setCancellationResult(InteractionResult.CONSUME);
         }
+    }
+
+    /**
+     * 绑定模式兜底拦截（1.3.1，真机反馈）：非空手状态下右键/左键方块、使用物品、放置方块、
+     * 实体交互全部取消，防止玩家在绑定模式下误放置 / 误使用（空手点击才放行绑定发包路径）。
+     * RightClickItem 覆盖"空中使用物品"，RightClickBlock 覆盖"对方块使用/放置"，
+     * EntityInteract(Specific) 覆盖"实体交互"。
+     */
+    @SubscribeEvent
+    public static void onRightClickItem(PlayerInteractEvent.RightClickItem evt) {
+        if (evt.getItemStack().isEmpty()) return; // 空手空中右键无原版效果，不拦
+        cancelForBindModeBothSides(evt);
+    }
+
+    /** 实体交互（含 Specific）：绑定模式下非空手一律取消。 */
+    @SubscribeEvent
+    public static void onEntityInteract(PlayerInteractEvent.EntityInteract evt) {
+        if (hasEmptyHands(evt.getEntity())) return;
+        cancelForBindModeBothSides(evt);
+    }
+
+    @SubscribeEvent
+    public static void onEntityInteractSpecific(PlayerInteractEvent.EntityInteractSpecific evt) {
+        if (hasEmptyHands(evt.getEntity())) return;
+        cancelForBindModeBothSides(evt);
+    }
+
+    /** 客户端看 ClientBindState 镜像，服务端看 ChannelManager 权威状态；命中即取消。 */
+    private static void cancelForBindModeBothSides(PlayerInteractEvent evt) {
+        Player player = evt.getEntity();
+        if (player == null) return;
+        if (evt.getLevel().isClientSide()) {
+            if (ClientBindState.isActive()) evt.setCanceled(true);
+        } else if (player instanceof ServerPlayer sp && ChannelManager.INSTANCE.isBindModeActive(sp)) {
+            evt.setCanceled(true);
+        }
+    }
+
+    /** 空手 = 主手与副手都没有物品。绑定模式下只有空手点击才放行绑定发包路径。 */
+    private static boolean hasEmptyHands(Player player) {
+        return player.getMainHandItem().isEmpty() && player.getOffhandItem().isEmpty();
     }
 }

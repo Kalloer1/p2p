@@ -8,7 +8,7 @@ import com.kalloer1.p2p.channel.Role;
 import com.kalloer1.p2p.network.ModMessages;
 import com.kalloer1.p2p.network.RequestChannelsC2SPacket;
 import com.kalloer1.p2p.client.screen.ChannelScreen;
-import com.mojang.blaze3d.platform.GlStateManager;
+import com.kalloer1.p2p.client.screen.P2PTheme;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
@@ -24,7 +24,6 @@ import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
-import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.phys.BlockHitResult;
@@ -40,10 +39,19 @@ import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
 
 /** FORGE-bus client events: open the config screen, draw endpoint highlight boxes + bound-face glow,
- *  and draw a see-through (x-ray) red frame around a block the player jump-highlighted from the GUI. */
+ *  and draw a see-through (x-ray) red frame around a block the player jump-highlighted from the GUI.
+ *
+ *  <p>Oculus（Iris）安全说明（1.20.1 专属修复，commit 61164f2 的延续）：本渲染路径<b>绝不触碰</b>
+ *  {@code mc.renderBuffers().bufferSource()}——Oculus 开启时会把共享 bufferSource 换成
+ *  FullyBufferedMultiBufferSource，endBatch 只入批处理队列，若由 Iris 阴影 pass 派发的 flush
+ *  上传这些段，会在无主渲染 shader 的阴影 pass 里 NPE 整帧崩溃。这里改用私有
+ *  {@link VertexBuffer} + {@code drawWithShader(mv, proj, shader)}（矩阵作为参数直传），
+ *  上传路径走 BufferUploader 立即执行，不产生延迟段，从根上避开那条崩溃通道。 */
 @Mod.EventBusSubscriber(modid = P2P.MODID, value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public final class ClientForgeEvents {
     private static final int HUD_RANGE = 32;
+    /** 绑定 HUD 胶囊底色（spec v1.2：iOS 深色半透明 0xC01C1C1E）。 */
+    private static final int HUD_CAPSULE_BG = 0xC01C1C1E;
 
     private ClientForgeEvents() {}
 
@@ -71,13 +79,13 @@ public final class ClientForgeEvents {
     private static boolean bufBuilding = false;
     private static VertexBuffer overlayVbo = null;
 
-    // 柔和色板（用户选定方案 A）：填充低饱和、描边同色系更亮一档。色相语义不变：IN 红、OUT 蓝、hover 黄。
+    // 柔和色板（用户选定方案 A）：填充低饱和、描边同色系更亮一档。色相语义：IN 红、OUT 蓝。
+    // 1.4.0：绑定模式的黄色 hover 预览高亮（HOVER_FILL/HOVER_LINE）已按要求完全移除；
+    // 已绑定端点的红/蓝面高亮与双击定位红框保留。
     private static final float[] INPUT_FILL = {0.898f, 0.451f, 0.451f};   // #E57373 珊瑚红
     private static final float[] INPUT_LINE = {1.000f, 0.620f, 0.620f};   // #FF9E9E
     private static final float[] OUTPUT_FILL = {0.392f, 0.710f, 0.965f};  // #64B5F6 天蓝
     private static final float[] OUTPUT_LINE = {0.620f, 0.850f, 1.000f};  // #9ED9FF
-    private static final float[] HOVER_FILL = {1.000f, 0.835f, 0.310f};   // #FFD54F 琥珀
-    private static final float[] HOVER_LINE = {1.000f, 0.930f, 0.550f};   // #FFED8C
     // GUI 跳转高亮框（非绑定模式 feature，保持红色语义，同样走面+描边）
     private static final float[] JUMP_FILL = {1.000f, 0.120f, 0.120f};
     private static final float[] JUMP_LINE = {1.000f, 0.400f, 0.400f};
@@ -146,7 +154,6 @@ public final class ClientForgeEvents {
                     BlockPos hoverPos = (hit instanceof BlockHitResult bhr) ? bhr.getBlockPos() : null;
                     Direction hoverFace = (hit instanceof BlockHitResult bhr) ? bhr.getDirection() : null;
 
-                    boolean hoverBound = false;
                     int rendered = 0;
                     for (Tag t : data.getList("channels", Tag.TAG_COMPOUND)) {
                         Channel c = Channel.deserializeNBT((CompoundTag) t);
@@ -160,14 +167,12 @@ public final class ClientForgeEvents {
                             pushFace(m.pos, m.face, fill, line, a, cam, mc);
                             rendered++;
                             if (hoverPos != null && m.pos.equals(hoverPos) && m.face == hoverFace) {
+                                // 仅提亮"已绑定的端点面"（红/蓝，保留）；未绑定的准星面不再画黄色预览框
                                 pushFace(m.pos, m.face, fill, line, 0.85f, cam, mc);
-                                hoverBound = true;
                             }
                         }
                     }
-                    if (hoverPos != null && hoverFace != null && !hoverBound) {
-                        pushFace(hoverPos, hoverFace, HOVER_FILL, HOVER_LINE, 0.6f, cam, mc);
-                    }
+                    // 1.4.0：原来这里会对未绑定的准星面 pushFace(HOVER_*) 画黄色预览框，已整体移除。
                     P2P.LOGGER.debug("[p2p] overlay built faces={} boundCid={} hover={}/{}", rendered, boundCid, hoverPos, hoverFace);
                 }
             }
@@ -293,7 +298,10 @@ public final class ClientForgeEvents {
         }
     }
 
-    /** 绑定模式开启时在屏幕底部画一条状态条：当前频道 + 操作提示。 */
+    /**
+     * 绑定模式开启时在屏幕底部居中画一条 iOS 深色半透明胶囊状态条（spec v1.2：文案不变只换皮）——
+     * "P2P 绑定模式"白色加粗（单绘 + 阴影）、"频道 #N"用 TINT 蓝点缀、操作提示用 TEXT_SECOND 浅灰。
+     */
     @SubscribeEvent
     public static void onRenderGui(RenderGuiEvent.Post evt) {
         if (!ClientBindState.isActive()) return;
@@ -302,19 +310,21 @@ public final class ClientForgeEvents {
         GuiGraphics gg = evt.getGuiGraphics();
         int w = mc.getWindow().getGuiScaledWidth();
         int ch = ClientBindState.getBoundChannel();
-        MutableComponent bindText = Component.empty()
-                .append(Lang.t(Lang.HUD_BIND))
-                .append(ch >= 0 ? Lang.t(Lang.HUD_BIND_CHANNEL, ch) : Lang.t(Lang.HUD_BIND_NO_CHANNEL))
-                .append(Lang.t(Lang.HUD_HINT));
-        int pad = 6, fh = 10;
-        int boxW = mc.font.width(bindText) + pad * 2;
+        MutableComponent title = Lang.t(Lang.HUD_BIND);
+        MutableComponent channelPart = ch >= 0 ? Lang.t(Lang.HUD_BIND_CHANNEL, ch) : Lang.t(Lang.HUD_BIND_NO_CHANNEL);
+        MutableComponent hint = Lang.t(Lang.HUD_HINT);
+        int padX = 10;
+        int boxH = mc.font.lineHeight + 10;
+        int boxW = padX * 2 + mc.font.width(title) + mc.font.width(channelPart) + mc.font.width(hint);
         int boxX = (w - boxW) / 2;
-        // 上移到快捷栏之上（快捷栏占底部约 22px，状态条自身高 22px，留 2px 间距）
         int boxY = mc.getWindow().getGuiScaledHeight() - 46;
-        gg.fill(boxX, boxY, boxX + boxW, boxY + fh + pad * 2, 0xCC2f2f2f);
-        gg.fill(boxX, boxY, boxX + boxW, boxY + 1, 0xFFFFFFFF);
-        gg.fill(boxX, boxY + fh + pad * 2 - 1, boxX + boxW, boxY + fh + pad * 2, 0xFF555555);
-        gg.drawString(mc.font, bindText.withStyle(ch >= 0 ? net.minecraft.ChatFormatting.GREEN : net.minecraft.ChatFormatting.YELLOW),
-                boxX + pad, boxY + pad, 0xFFFFFFFF, false);
+        int textY = boxY + (boxH - mc.font.lineHeight) / 2;
+        P2PTheme.drawRoundRect(gg, boxX, boxY, boxW, boxH, boxH / 2, HUD_CAPSULE_BG);
+        int x = boxX + padX;
+        P2PTheme.drawStringBold(gg, mc.font, title, x, textY, P2PTheme.CARD);
+        x += mc.font.width(title);
+        x += gg.drawString(mc.font, channelPart, x, textY,
+                ch >= 0 ? P2PTheme.TINT : P2PTheme.WARNING, false);
+        gg.drawString(mc.font, hint, x, textY, P2PTheme.TEXT_SECOND, false);
     }
 }

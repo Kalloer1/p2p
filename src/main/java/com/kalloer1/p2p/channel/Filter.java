@@ -11,13 +11,19 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.fluids.FluidStack;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 /**
  * Sampling filter for a channel member. Energy channels have no filter (always pass).
  * Holds item templates, item tags, an optional NBT regex, and/or fluid templates depending on channel type.
+ *
+ * <p>Addons may store arbitrary namespaced data in {@link #addonData}: it is serialized and synced
+ * verbatim (inside the filter NBT, so the SET_FILTER packet is unchanged) and is never interpreted
+ * by p2p itself. Old saves without the field deserialize to an empty map.</p>
  */
 public class Filter {
     public enum Mode { WHITELIST, BLACKLIST }
@@ -28,6 +34,12 @@ public class Filter {
     private final List<ResourceLocation> itemTags;
     private final String nbtRegex;
     private final List<FluidStack> fluidTemplates;
+
+    /**
+     * Pass-through storage for addon filters, keyed by the addon's own namespace
+     * (e.g. {@code "mekanism:gas"}). p2p only carries, saves and syncs these tags.
+     */
+    public final Map<String, CompoundTag> addonData = new LinkedHashMap<>();
 
     public Filter(Mode mode, boolean matchNBT, List<ItemStack> itemTemplates,
                   List<ResourceLocation> itemTags, String nbtRegex, List<FluidStack> fluidTemplates) {
@@ -60,7 +72,8 @@ public class Filter {
     public String getNbtRegex() { return nbtRegex; }
     public List<FluidStack> getFluidTemplates() { return fluidTemplates; }
     public boolean isEmpty() {
-        return itemTemplates.isEmpty() && itemTags.isEmpty() && nbtRegex.isEmpty() && fluidTemplates.isEmpty();
+        return itemTemplates.isEmpty() && itemTags.isEmpty() && nbtRegex.isEmpty() && fluidTemplates.isEmpty()
+                && addonData.isEmpty();
     }
 
     public boolean test(ItemStack stack) {
@@ -83,7 +96,7 @@ public class Filter {
             }
         }
 
-        // nbt regex match
+        // nbt regex match — in 1.20.1 item NBT is the stack's root tag
         if (!anyMatch && !nbtRegex.isEmpty() && stack.hasTag()) {
             try {
                 Pattern p = Pattern.compile(nbtRegex);
@@ -121,6 +134,12 @@ public class Filter {
         ListTag fluids = new ListTag();
         for (FluidStack f : fluidTemplates) fluids.add(f.writeToNBT(new CompoundTag()));
         tag.put("fluids", fluids);
+        if (!addonData.isEmpty()) {
+            CompoundTag addons = new CompoundTag();
+            for (Map.Entry<String, CompoundTag> e : addonData.entrySet())
+                if (e.getValue() != null && !e.getValue().isEmpty()) addons.put(e.getKey(), e.getValue());
+            if (!addons.isEmpty()) tag.put("addon", addons);
+        }
         return tag;
     }
 
@@ -137,6 +156,13 @@ public class Filter {
         String regex = tag.contains("nbtRegex", Tag.TAG_STRING) ? tag.getString("nbtRegex") : "";
         List<FluidStack> fluids = new ArrayList<>();
         for (Tag t : tag.getList("fluids", Tag.TAG_COMPOUND)) fluids.add(FluidStack.loadFluidStackFromNBT((CompoundTag) t));
-        return new Filter(m, nbt, items, tags, regex, fluids);
+        Filter f = new Filter(m, nbt, items, tags, regex, fluids);
+        // addon pass-through: old saves simply have no "addon" section → empty map
+        if (tag.contains("addon", Tag.TAG_COMPOUND)) {
+            CompoundTag addons = tag.getCompound("addon");
+            for (String key : addons.getAllKeys())
+                if (addons.get(key) instanceof CompoundTag ct) f.addonData.put(key, ct);
+        }
+        return f;
     }
 }
