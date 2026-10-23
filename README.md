@@ -27,7 +27,7 @@ P2P lets you bind container faces across your base — and across dimensions —
 
 The built jar is placed in `build/libs/`.
 
-`libs/emi-1.1.24+1.20.1+forge.jar` is vendored as a compile-only dependency for the filter editor (EMI by Emi, MIT — <https://modrinth.com/mod/emi>); any compatible EMI build works.
+The EMI viewer API is a compile-only dependency resolved from a local jar that is **not bundled** in this repository. Before building, download `emi-1.1.24+1.20.1+forge.jar` (EMI by Emi, MIT — <https://modrinth.com/mod/emi>) and drop it into `libs/`. At runtime, players install EMI or JEI on their own.
 
 ## License
 
