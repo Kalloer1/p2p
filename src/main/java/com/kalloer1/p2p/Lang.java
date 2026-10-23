@@ -48,6 +48,8 @@ public final class Lang {
     public static final String UI_FILTER = "p2p.ui.filter";
     public static final String UI_GROUP_NONE = "p2p.ui.group_none";
     public static final String UI_NO_MATCH = "p2p.ui.no_match";
+    public static final String UI_THEME_SWITCH_DARK = "p2p.ui.theme.switch_dark";
+    public static final String UI_THEME_SWITCH_LIGHT = "p2p.ui.theme.switch_light";
 
     // ---- 配置 pill 短标签（spec v1.1：pill 只显短词，值进 tooltip，非默认态 TINT 提亮） ----
     public static final String UI_PILL_REDSTONE = "p2p.ui.pill.redstone";

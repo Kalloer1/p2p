@@ -12,6 +12,8 @@ import com.kalloer1.p2p.channel.Member;
 import com.kalloer1.p2p.channel.Network;
 import com.kalloer1.p2p.channel.Role;
 import com.kalloer1.p2p.client.ClientChannelCache;
+import com.kalloer1.p2p.client.P2PClientConfig;
+import com.kalloer1.p2p.client.screen.theme.ThemeMode;
 import com.kalloer1.p2p.medium.Medium;
 import com.kalloer1.p2p.medium.Mediums;
 import com.kalloer1.p2p.network.ChannelActionC2SPacket;
@@ -132,7 +134,7 @@ public class ChannelScreen extends Screen {
 
     private final Set<Integer> openGroups = new HashSet<>();
     private EditBox searchBox;
-    private P2PFlatButton redstoneBtn, distBtn, rateDown, rateUp, speedDown, speedUp, groupBtn, bindBtn, deleteBtn, cleanBtn, createCh, createGrp, deleteGrpBtn, prevNet, nextNet, typeBtn, maxRateBtn, chunkLoadBtn;
+    private P2PFlatButton redstoneBtn, distBtn, rateDown, rateUp, speedDown, speedUp, groupBtn, bindBtn, deleteBtn, cleanBtn, createCh, createGrp, deleteGrpBtn, prevNet, nextNet, themeBtn, typeBtn, maxRateBtn, chunkLoadBtn;
     private EditBox rateEdit, speedEdit;
     private boolean rateFocusPrev = false, speedFocusPrev = false;
 
@@ -238,6 +240,13 @@ public class ChannelScreen extends Screen {
         nextNet = addRenderableWidget(new P2PFlatButton(Button.builder(Component.literal(">"), b -> pageNet(1)).bounds(leftPos + W - 8 - 16, topPos + (NAV_H - 14) / 2, 14, 14)));
         prevNet.setStyle(P2PFlatButton.Style.CIRCLE);
         nextNet.setStyle(P2PFlatButton.Style.CIRCLE);
+
+        themeBtn = addRenderableWidget(new P2PFlatButton(Button.builder(
+                Component.literal(P2PTheme.isDark() ? "☀" : "☾"),
+                this::toggleTheme
+        ).bounds(leftPos + W - 8 - 3 * 16, topPos + (NAV_H - 14) / 2, 14, 14)));
+        themeBtn.setStyle(P2PFlatButton.Style.CIRCLE);
+        updateThemeTooltip();
 
         ModMessages.sendToServer(new RequestChannelsC2SPacket());
     }
@@ -1020,6 +1029,30 @@ public class ChannelScreen extends Screen {
         clearEndpointSelection();
         clearChannelSelection();   // 换网络后频道多选同样失效
         saveUiState();
+    }
+
+    private void toggleTheme(Button b) {
+        ThemeMode next = P2PTheme.isDark() ? ThemeMode.LIGHT : ThemeMode.DARK;
+        P2PTheme.setTheme(next);
+        b.setMessage(Component.literal(next == ThemeMode.DARK ? "☀" : "☾"));
+        updateThemeTooltip();
+        if (searchBox != null) searchBox.setTextColor(P2PTheme.TEXT_PRIMARY);
+        if (rateEdit != null) rateEdit.setTextColor(P2PTheme.TEXT_PRIMARY);
+        if (speedEdit != null) speedEdit.setTextColor(P2PTheme.TEXT_PRIMARY);
+        try {
+            if (P2PClientConfig.themeMode != null) {
+                P2PClientConfig.themeMode.set(next);
+                P2PClientConfig.SPEC.save();
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private void updateThemeTooltip() {
+        if (themeBtn != null) {
+            themeBtn.setTooltip(Tooltip.create(P2PTheme.isDark()
+                    ? Lang.t(Lang.UI_THEME_SWITCH_LIGHT)
+                    : Lang.t(Lang.UI_THEME_SWITCH_DARK)));
+        }
     }
 
     private void openFilter(Member m) {

@@ -1,5 +1,7 @@
 # P2P — Wireless Channel Logistics (Forge 1.20.1)
 
+> **Version note:** this repository hosts both supported versions. You are on the `1.20.1` (Forge) branch — the current `main` branch is the NeoForge 1.21.1 build. See the branch dropdown above to switch.
+
 P2P lets you bind container faces across your base — and across dimensions — into typed, wireless channels that move items, fluids, and energy with no buffer in between.
 
 ## Features

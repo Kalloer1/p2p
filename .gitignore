@@ -8,6 +8,9 @@ out/
 *.iml
 # OS
 Thumbs.db
+# agent/local-only files (never commit)
+.claude/
+.task_p2p_fixes.md
 # abandoned GUI prototype line (code-drawn UI replaced the atlas; cleaned 2026-09-04)
 /_tmp/
 /gui/
