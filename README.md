@@ -1,6 +1,6 @@
 # P2P — Wireless Channel Logistics (Forge 1.20.1)
 
-> **Version note:** this repository hosts both supported versions. You are on the `1.20.1` (Forge) branch — the current `main` branch is the NeoForge 1.21.1 build. See the branch dropdown above to switch.
+> **Version note:** this repository hosts both supported versions. You are on the `1.20.1` (Forge) branch — the current `1.21.1` branch is the NeoForge 1.21.1 build. See the branch dropdown above to switch.
 
 P2P lets you bind container faces across your base — and across dimensions — into typed, wireless channels that move items, fluids, and energy with no buffer in between.
 
@@ -26,6 +26,8 @@ P2P lets you bind container faces across your base — and across dimensions —
 ```
 
 The built jar is placed in `build/libs/`.
+
+`libs/emi-1.1.24+1.20.1+forge.jar` is vendored as a compile-only dependency for the filter editor (EMI by Emi, MIT — <https://modrinth.com/mod/emi>); any compatible EMI build works.
 
 ## License
 

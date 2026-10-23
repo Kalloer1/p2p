@@ -58,7 +58,9 @@ repositories {
     maven { url = 'https://maven.blamejared.com' }
     maven { url = 'https://maven.createmod.net' }
     maven { url = 'https://www.cursemaven.com' }
-    // Local EMI 1.20.1 jar (compile-only; ghost-drag into the filter editor marker grid)
+    // Local EMI 1.20.1 jar (compile-only; ghost-drag into the filter editor marker grid).
+    // Resolved from project-local libs/ (gitignored, not redistributed): drop emi-<emi_version>.jar there
+    // when the maven coordinate is unavailable in your environment.
     flatDir { dirs "${projectDir}/libs" }
 }
 
