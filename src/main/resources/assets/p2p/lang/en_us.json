@@ -29,6 +29,8 @@
   "p2p.ui.filter": "Filter",
   "p2p.ui.group_none": "None",
   "p2p.ui.no_match": "No matching channel",
+  "p2p.ui.theme.switch_dark": "Switch to Dark Theme",
+  "p2p.ui.theme.switch_light": "Switch to Light Theme",
   "p2p.ui.type.item": "Item",
   "p2p.ui.type.fluid": "Fluid",
   "p2p.ui.type.energy": "Energy",

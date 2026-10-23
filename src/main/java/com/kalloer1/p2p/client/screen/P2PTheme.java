@@ -1,5 +1,9 @@
 package com.kalloer1.p2p.client.screen;
 
+import com.kalloer1.p2p.client.screen.theme.DarkPalette;
+import com.kalloer1.p2p.client.screen.theme.LightPalette;
+import com.kalloer1.p2p.client.screen.theme.ThemeMode;
+import com.kalloer1.p2p.client.screen.theme.ThemePalette;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
@@ -10,41 +14,102 @@ import net.minecraft.network.chat.Component;
  *
  * <p>所有绘制都是即时模式的一次性 fill，无纹理图集、无投影、无动效；圆角由
  * {@link #drawRoundRect} 扫描线生成。规格见 .grill-research/ios-ui-spec.md §1–§3。
+ *
+ * <p>支持动态多主题切换（Light / Dark），色彩 token 由当前活动的 {@link ThemePalette} 驱动。
  */
 public final class P2PTheme {
 
+    private static ThemePalette activePalette = LightPalette.INSTANCE;
+
     // ==================== §1 色彩 token（ARGB） ====================
+    // 注：为保证已有代码调用点无感知兼容且能动态换肤，色彩 Token 为非 final 静态变量，
+    // 在主题切换时由 activePalette 全量同步赋值。
     /** 全屏遮罩。 */
-    public static final int BG_OVERLAY = 0x80000000;
+    public static int BG_OVERLAY = 0x80000000;
     /** 面板底色（systemGroupedBackground）。 */
-    public static final int BG_GROUP = 0xFFF2F2F7;
+    public static int BG_GROUP = 0xFFF2F2F7;
     /** 卡片 / 列表 / 工具条底。 */
-    public static final int CARD = 0xFFFFFFFF;
+    public static int CARD = 0xFFFFFFFF;
     /** 选中行 / 悬停行。 */
-    public static final int CARD_SEL = 0xFFE9E9EE;
+    public static int CARD_SEL = 0xFFE9E9EE;
     /** 1px 分隔线。 */
-    public static final int SEPARATOR = 0xFFD1D1D6;
+    public static int SEPARATOR = 0xFFD1D1D6;
     /** 标题、值。 */
-    public static final int TEXT_PRIMARY = 0xFF1C1C1E;
+    public static int TEXT_PRIMARY = 0xFF1C1C1E;
     /** 标签、说明。 */
-    public static final int TEXT_SECOND = 0xFF8E8E93;
+    public static int TEXT_SECOND = 0xFF8E8E93;
     /** 占位符、禁用。 */
-    public static final int TEXT_TERT = 0xFFAEAEB2;
+    public static int TEXT_TERT = 0xFFAEAEB2;
     /** 主操作、OUT 徽牌、链接钮、选中页签。 */
-    public static final int TINT = 0xFF007AFF;
+    public static int TINT = 0xFF007AFF;
     /** 删除钮/×、IN 徽牌、错误。 */
-    public static final int DANGER = 0xFFFF3B30;
+    public static int DANGER = 0xFFFF3B30;
     /** toggle ON、已连接状态点。 */
-    public static final int SUCCESS = 0xFF34C759;
+    public static int SUCCESS = 0xFF34C759;
     /** 应力/转速数值、注意状态（旧金字全部映射到此）。 */
-    public static final int WARNING = 0xFFFF9500;
+    public static int WARNING = 0xFFFF9500;
     /** 搜索框、输入框底。 */
-    public static final int FIELD_BG = 0xFFE5E5EA;
+    public static int FIELD_BG = 0xFFE5E5EA;
     /** 槽位井底（比 FIELD_BG 更浅一档）。 */
-    public static final int SLOT_WELL = 0xFFEBEBF0;
+    public static int SLOT_WELL = 0xFFEBEBF0;
 
     /** 末地维度紫：维度 pill 只用 §1 的四个语义色，其余三色直接取 token。 */
-    public static final int DIM_END = 0xFFAF52DE;
+    public static int DIM_END = 0xFFAF52DE;
+
+    private static int TINT_DARK = 0xFF0062CC;
+    private static int DANGER_DARK = 0xFFCC2E26;
+
+    static {
+        applyPalette(activePalette);
+    }
+
+    /** 切换主题模式。 */
+    public static void setTheme(ThemeMode mode) {
+        if (mode == ThemeMode.DARK) {
+            setPalette(DarkPalette.INSTANCE);
+        } else {
+            setPalette(LightPalette.INSTANCE);
+        }
+    }
+
+    /** 设置自定义调色板。 */
+    public static void setPalette(ThemePalette palette) {
+        if (palette == null) palette = LightPalette.INSTANCE;
+        activePalette = palette;
+        applyPalette(palette);
+    }
+
+    private static void applyPalette(ThemePalette p) {
+        BG_OVERLAY = p.bgOverlay();
+        BG_GROUP = p.bgGroup();
+        CARD = p.card();
+        CARD_SEL = p.cardSel();
+        SEPARATOR = p.separator();
+        TEXT_PRIMARY = p.textPrimary();
+        TEXT_SECOND = p.textSecond();
+        TEXT_TERT = p.textTert();
+        TINT = p.tint();
+        TINT_DARK = p.tintDark();
+        DANGER = p.danger();
+        DANGER_DARK = p.dangerDark();
+        SUCCESS = p.success();
+        WARNING = p.warning();
+        FIELD_BG = p.fieldBg();
+        SLOT_WELL = p.slotWell();
+        DIM_END = p.dimEnd();
+    }
+
+    public static ThemePalette getPalette() {
+        return activePalette;
+    }
+
+    public static ThemeMode getMode() {
+        return activePalette.mode();
+    }
+
+    public static boolean isDark() {
+        return activePalette.mode() == ThemeMode.DARK;
+    }
 
     // ==================== §2 形态 token ====================
     public static final int R_CARD = 4;
@@ -99,12 +164,12 @@ public final class P2PTheme {
         drawRoundRect(gg, x, y, w, h, h / 2, color);
     }
 
-    /** 白色卡片。 */
+    /** 白色/深色卡片。 */
     public static void card(GuiGraphics gg, int x, int y, int w, int h) {
         drawRoundRect(gg, x, y, w, h, R_CARD, CARD);
     }
 
-    /** 卡中卡：浅灰底（分组底色），用于白卡内部的分区底板。 */
+    /** 卡中卡：底色（分组底色），用于白卡/深灰卡内部的分区底板。 */
     public static void plate(GuiGraphics gg, int x, int y, int w, int h) {
         drawRoundRect(gg, x, y, w, h, R_CARD, BG_GROUP);
     }
@@ -126,7 +191,7 @@ public final class P2PTheme {
         int gx = x + 5, gy = y + h / 2 - 2;
         gg.fill(gx, gy, gx + 4, gy + 1, TEXT_TERT);
         gg.fill(gx, gy + 3, gx + 4, gy + 4, TEXT_TERT);
-        gg.fill(gx, gy, gx + 1, gy + 4, TEXT_TERT);
+        gg.fill(gx, gy + 1, gx + 4, gy + 4, TEXT_TERT);
         gg.fill(gx + 3, gy, gx + 4, gy + 4, TEXT_TERT);
         gg.fill(gx + 4, gy + 3, gx + 5, gy + 4, TEXT_TERT);
         gg.fill(gx + 5, gy + 4, gx + 6, gy + 5, TEXT_TERT);
@@ -159,14 +224,14 @@ public final class P2PTheme {
     // ==================== 组件 ====================
     /**
      * iOS toggle：OFF=FIELD_BG，ON=SUCCESS，滑块 12x12 白。整体 24x14 与滑块尺寸不变，
-     * 轨道四周留 1px SEPARATOR 描边——OFF 态的浅灰轨道直接放在白卡上几乎不可见（真机反馈）。
+     * 轨道四周留 1px SEPARATOR 描边。滑块使用高亮白保证在深色/浅色均清晰。
      */
     public static void toggle(GuiGraphics gg, int x, int y, boolean on) {
         drawPill(gg, x, y, TOGGLE_W, TOGGLE_H, SEPARATOR);          // 1px 描边（外圈）
         drawPill(gg, x + 1, y + 1, TOGGLE_W - 2, TOGGLE_H - 2, on ? SUCCESS : FIELD_BG);
         int knobY = y + (TOGGLE_H - TOGGLE_KNOB) / 2;
         int knobX = on ? x + TOGGLE_W - TOGGLE_KNOB - 1 : x + 1;
-        drawRoundRect(gg, knobX, knobY, TOGGLE_KNOB, TOGGLE_KNOB, TOGGLE_KNOB / 2, CARD);
+        drawRoundRect(gg, knobX, knobY, TOGGLE_KNOB, TOGGLE_KNOB, TOGGLE_KNOB / 2, activePalette.toggleKnob());
     }
 
     /** pill 钮底：FIELD_BG，按下态 CARD_SEL。 */
@@ -195,9 +260,9 @@ public final class P2PTheme {
         drawPill(gg, x, y, w, h, FIELD_BG);
     }
 
-    /** segmented 选中段：内缩 1px 的白底圆角块。 */
+    /** segmented 选中段：内缩 1px 的高亮圆角块。 */
     public static void segmentedCell(GuiGraphics gg, int x, int y, int w, int h) {
-        drawPill(gg, x + 1, y + 1, w - 2, h - 2, CARD);
+        drawPill(gg, x + 1, y + 1, w - 2, h - 2, activePalette.segmentedCell());
     }
 
     /** stepper 圆钮：TINT 底 14x14，白符号由调用方绘制。 */
@@ -217,14 +282,14 @@ public final class P2PTheme {
     }
 
     /**
-     * 圆形删除×：14x14 DANGER 底 + 白色 ×。旧版两段对角线的圆心偏到了 (9, 7.5)，
-     * 小尺寸下看起来像 »；改为以圆心 (7,7) 对称、各 7px 的两条对角线（覆盖 y+4..y+10）。
+     * 圆形删除×：14x14 DANGER 底 + 白色 ×。
+     * 符号保证在深色/浅色模式下均保持纯白鲜明。
      */
     public static void deleteCross(GuiGraphics gg, int x, int y, boolean pressed) {
         drawRoundRect(gg, x, y, CIRCLE, CIRCLE, CIRCLE / 2, pressed ? DANGER_DARK : DANGER);
         for (int i = -3; i <= 3; i++) {
-            gg.fill(x + 7 + i, y + 7 + i, x + 8 + i, y + 8 + i, CARD);
-            gg.fill(x + 7 + i, y + 7 - i, x + 8 + i, y + 8 - i, CARD);
+            gg.fill(x + 7 + i, y + 7 + i, x + 8 + i, y + 8 + i, 0xFFFFFFFF);
+            gg.fill(x + 7 + i, y + 7 - i, x + 8 + i, y + 8 - i, 0xFFFFFFFF);
         }
     }
 
@@ -249,16 +314,13 @@ public final class P2PTheme {
     }
 
     // ==================== 对话框 ====================
-    /** 遮罩 + 居中白卡（圆角 6）。 */
+    /** 遮罩 + 居中白卡/深灰卡（圆角 6）。 */
     public static void dialog(GuiGraphics gg, int screenW, int screenH, int x, int y, int w, int h,
             Font font, Component title) {
         gg.fill(0, 0, screenW, screenH, BG_OVERLAY);
         drawRoundRect(gg, x, y, w, h, R_DIALOG, CARD);
         if (title != null) drawCenteredBold(gg, font, title, x, y + 7, w, TEXT_PRIMARY);
     }
-
-    private static final int TINT_DARK = 0xFF0062CC;
-    private static final int DANGER_DARK = 0xFFCC2E26;
 
     private P2PTheme() {}
 }

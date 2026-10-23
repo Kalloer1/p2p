@@ -1,25 +1,40 @@
+# P2P Channel Network
 
-Installation information
-=======
+Server-authoritative typed point-to-point channels across dimensions — items, fluids, energy and addon media.
 
-This template repository can be directly cloned to get you started with a new
-mod. Simply create a new repository cloned from this one, by following the
-instructions provided by [GitHub](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-repository-from-a-template).
+## Repository layout
 
-Once you have your clone, simply open the repository in the IDE of your choice. The usual recommendation for an IDE is either IntelliJ IDEA or Eclipse.
+This repository hosts both supported versions as branches:
 
-If at any point you are missing libraries in your IDE, or you've run into problems you can
-run `gradlew --refresh-dependencies` to refresh the local cache. `gradlew clean` to reset everything 
-{this does not affect your code} and then start the process again.
+| Branch | Minecraft | Loader | Status |
+| --- | --- | --- | --- |
+| `1.21.1` | 1.21.1 | NeoForge 21.1.x | current |
+| `1.20.1` | 1.20.1 | Forge 47.4.x | maintenance |
 
-Mapping Names:
-============
-By default, the MDK is configured to use the official mapping names from Mojang for methods and fields 
-in the Minecraft codebase. These names are covered by a specific license. All modders should be aware of this
-license. For the latest license text, refer to the mapping file itself, or the reference copy here:
-https://github.com/NeoForged/NeoForm/blob/main/Mojang.md
+## Features
 
-Additional Resources: 
-==========
-Community Documentation: https://docs.neoforged.net/  
-NeoForged Discord: https://discord.neoforged.net/
+- **Typed channels** — `ITEM` / `FLUID` / `ENERGY` (plus addon media such as Mekanism gas, Ars Nouveau source and Botania mana via [P2P Compat](https://github.com/Kalloer1/p2p-compat)), chosen at creation and locked afterwards.
+- **Cross-dimension transfer** — endpoints in different dimensions talk over the same channel.
+- **Per-channel rate & speed** — tune throughput (amount per tick) and execution cadence independently.
+- **Filters** — per-endpoint whitelist / blacklist, NBT matching, item tags and regex.
+- **Networks & groups** — organise channels; admins can see and enter other players' networks.
+- **Capability cache + adaptive backoff** — scales to many channels and members without per-tick stalls.
+- **JEI / EMI** — drag items, fluids or filled buckets into channel filter markers (compile-time API; install either viewer at runtime).
+
+## Requirements
+
+- Minecraft `1.21.1`
+- NeoForge `21.1.x`
+- Client **and** server both required
+
+## Building
+
+```bash
+./gradlew build
+```
+
+The built jar is placed in `build/libs/`.
+
+## License
+
+GPL-3.0-only. See [LICENSE](LICENSE).

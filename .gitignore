@@ -41,3 +41,8 @@ repo/
 
 ### 本地依赖 jar（查看器 API compileOnly，不入库） ###
 libs/
+
+### 本地脚本与运行日志（含本机路径，不入库） ###
+logs/
+/compile.bat
+/compile2.bat

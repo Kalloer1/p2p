@@ -95,6 +95,42 @@ configurations {
     runtimeClasspath.extendsFrom localRuntime
 }
 
+// ============================================================ 离线 GUI 渲染 harness
+// 不启动游戏：把真实 Screen 代码跑在离线栅格化器上（src/harness/java）。
+// harness 只加 classpath，不进模组 jar；渲染产物输出到 build/gui-render/（可用 -Pguirender.out=... 覆盖）。
+sourceSets {
+    harness {
+        java.srcDirs = ['src/harness/java']
+        compileClasspath += sourceSets.main.output
+        compileClasspath += sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.runtimeClasspath
+    }
+}
+
+dependencies {
+    harnessImplementation 'org.mockito:mockito-core:5.12.0'
+}
+
+tasks.register('fontDebug', JavaExec) {
+    group = 'p2p'
+    classpath = sourceSets.harness.runtimeClasspath
+    mainClass = 'com.kalloer1.p2p.harness.FontDebug'
+    jvmArgs '-Xmx2G'
+}
+
+tasks.register('renderChannelScreen', JavaExec) {
+    group = 'p2p'
+    description = 'Offline-render the ChannelScreen to a 1080p PNG (no game launch).'
+    classpath = sourceSets.harness.runtimeClasspath
+    mainClass = 'com.kalloer1.p2p.harness.RenderMain'
+    jvmArgs '-Xmx2G'
+    systemProperty 'guirender.out', providers.gradleProperty('guirender.out').getOrElse(
+        'build/gui-render')
+    systemProperty 'guirender.probe', providers.gradleProperty('guirender.probe').getOrElse('')
+}
+
 dependencies {
     // Specify the version of Minecraft to use.
     // Depending on the plugin applied there are several options. We will assume you applied the userdev plugin as shown above.
