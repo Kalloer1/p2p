@@ -35,6 +35,13 @@ This repository hosts both supported versions as branches:
 
 The built jar is placed in `build/libs/`.
 
+The JEI and EMI viewer APIs are compile-only dependencies resolved from local jars that are **not bundled** in this repository. Before building, drop these into `libs/`:
+
+- `jei-1.21.1-neoforge-19.21.0.247.jar` — [JEI](https://modrinth.com/mod/jei)
+- `emi-1.1.24+1.21.1+neoforge.jar` — [EMI](https://modrinth.com/mod/emi) (MIT)
+
+At runtime, players install either viewer themselves.
+
 ## License
 
 GPL-3.0-only. See [LICENSE](LICENSE).
